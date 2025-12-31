@@ -68,7 +68,7 @@ export default function WorkoutsPage() {
           startTime: string;
           endTime: string | null;
           name: string | null;
-          type: string;
+          workoutType: string | null;
           exercises: Array<{
             exercise: { name: string };
             sets: Array<{ weight: number; reps: number; isWarmup: boolean }>;
@@ -100,7 +100,7 @@ export default function WorkoutsPage() {
             id: session.id,
             date: session.startTime.split('T')[0],
             name: session.name,
-            type: session.type || 'custom',
+            type: session.workoutType || 'custom',
             duration,
             exercises: exerciseData,
             volume: totalVolume,
