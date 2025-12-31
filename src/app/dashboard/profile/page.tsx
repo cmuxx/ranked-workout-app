@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   User,
   Settings,
@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Save,
   Camera,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,18 +36,39 @@ import { RankBadge } from '@/components/rank-badge';
 import { Separator } from '@/components/ui/separator';
 import { RankTier } from '@/lib/scoring';
 
-// Mock user data
-const mockUser = {
-  name: 'John Doe',
-  email: 'john.doe@example.com',
+interface ProfileData {
+  name: string;
+  email: string;
+  avatar: string | null;
+  rank: RankTier;
+  memberSince: string;
+  profile: {
+    sex: string;
+    birthDate: string;
+    bodyWeight: number;
+    height: number;
+    weightUnit: string;
+    heightUnit: string;
+  };
+  preferences: {
+    weeklyGoal: number;
+    restTimerDefault: number;
+    notifications: boolean;
+    darkMode: boolean;
+  };
+}
+
+const defaultFormData: ProfileData = {
+  name: '',
+  email: '',
   avatar: null,
-  rank: 'champion' as RankTier,
-  memberSince: 'December 2023',
+  rank: 'unranked' as RankTier,
+  memberSince: '',
   profile: {
     sex: 'male',
-    birthDate: '1995-06-15',
-    bodyWeight: 85,
-    height: 180,
+    birthDate: '',
+    bodyWeight: 70,
+    height: 170,
     weightUnit: 'kg',
     heightUnit: 'cm',
   },
@@ -60,14 +82,99 @@ const mockUser = {
 
 export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'settings' | 'notifications'>('profile');
-  const [formData, setFormData] = useState(mockUser);
+  const [formData, setFormData] = useState<ProfileData>(defaultFormData);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Fetch profile data on mount
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch profile and stats in parallel
+        const [profileRes, statsRes] = await Promise.all([
+          fetch('/api/profile'),
+          fetch('/api/stats'),
+        ]);
+
+        if (!profileRes.ok && profileRes.status !== 404) {
+          throw new Error('Failed to fetch profile');
+        }
+        if (!statsRes.ok) {
+          throw new Error('Failed to fetch stats');
+        }
+
+        const statsData = await statsRes.json();
+        const profileData = profileRes.ok ? await profileRes.json() : { profile: null };
+
+        // Build form data from API responses
+        setFormData({
+          name: statsData.user?.name || '',
+          email: statsData.user?.email || '',
+          avatar: statsData.user?.image || null,
+          rank: statsData.rank || 'unranked',
+          memberSince: statsData.user?.createdAt
+            ? new Date(statsData.user.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+            : '',
+          profile: {
+            sex: profileData.profile?.sex || 'male',
+            birthDate: profileData.profile?.birthDate
+              ? new Date(profileData.profile.birthDate).toISOString().split('T')[0]
+              : '',
+            bodyWeight: profileData.profile?.bodyWeight || 70,
+            height: profileData.profile?.height || 170,
+            weightUnit: profileData.profile?.weightUnit || 'kg',
+            heightUnit: profileData.profile?.heightUnit || 'cm',
+          },
+          preferences: {
+            weeklyGoal: 4,
+            restTimerDefault: 120,
+            notifications: true,
+            darkMode: true,
+          },
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load profile');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   const handleSave = async () => {
     setIsSaving(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsSaving(false);
+    setSaveSuccess(false);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          birthDate: formData.profile.birthDate,
+          sex: formData.profile.sex,
+          height: formData.profile.height,
+          heightUnit: formData.profile.heightUnit,
+          bodyWeight: formData.profile.bodyWeight,
+          weightUnit: formData.profile.weightUnit,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to save profile');
+      }
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const calculateAge = (birthDate: string) => {
@@ -87,6 +194,14 @@ export default function ProfilePage() {
     { id: 'notifications', label: 'Notifications', icon: Bell },
   ] as const;
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -98,6 +213,20 @@ export default function ProfilePage() {
           </p>
         </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* Success Message */}
+      {saveSuccess && (
+        <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg text-green-600 dark:text-green-400 text-sm">
+          Profile saved successfully!
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Sidebar */}

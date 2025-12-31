@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import { Dumbbell, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -55,7 +56,21 @@ export default function RegisterPage() {
         return;
       }
 
-      // Redirect to onboarding after successful registration
+      // Sign in the user after successful registration
+      const signInResult = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (signInResult?.error) {
+        setError('Registration successful but failed to sign in. Please log in manually.');
+        router.push('/login');
+        return;
+      }
+
+      // Refresh to ensure session is propagated, then redirect to onboarding
+      router.refresh();
       router.push('/onboarding');
     } catch {
       setError('Something went wrong. Please try again.');

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Dumbbell,
@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Plus,
   Zap,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,46 +27,121 @@ import {
   RecoveryIndicator,
   MuscleGroupData,
 } from '@/components/anatomy-visualization';
-import { RankTier } from '@/lib/scoring';
+import { RankTier, getRankTier } from '@/lib/scoring';
 
-// Mock data - replace with real data from API
-const mockUserData = {
-  name: 'John',
-  overallRank: 'gold' as RankTier,
-  overallScore: 48,
-  streak: 12,
-  totalWorkouts: 87,
-  weeklyVolume: 15200,
-  weeklyChange: 8.5,
-};
+interface DashboardStats {
+  user: {
+    name: string | null;
+    email: string;
+  };
+  stats: {
+    workoutsThisWeek: number;
+    totalWorkouts: number;
+    currentStreak: number;
+    longestStreak: number;
+    weeklyVolume: number;
+  };
+  rank: {
+    overall: RankTier;
+    score: number;
+    progress: number;
+  };
+  muscleScores: Record<string, number>;
+  muscleRecovery: Record<string, number>;
+  recentPRs: Array<{
+    exercise: string;
+    weight: number;
+    reps: number;
+    estimated1RM: number;
+    date: string;
+  }>;
+}
 
-const mockMuscleGroups = [
-  { name: 'chest', rank: 'gold' as RankTier, score: 52, recoveryStatus: 'ready' as const, lastTrained: '2 days ago', recentVolume: 5200 },
-  { name: 'back', rank: 'silver' as RankTier, score: 38, recoveryStatus: 'recovering' as const, lastTrained: '1 day ago', recentVolume: 6100 },
-  { name: 'shoulders', rank: 'gold' as RankTier, score: 45, recoveryStatus: 'ready' as const, lastTrained: '3 days ago', recentVolume: 3400 },
-  { name: 'biceps', rank: 'silver' as RankTier, score: 35, recoveryStatus: 'ready' as const, lastTrained: '2 days ago', recentVolume: 2100 },
-  { name: 'triceps', rank: 'silver' as RankTier, score: 32, recoveryStatus: 'ready' as const, lastTrained: '2 days ago', recentVolume: 1900 },
-  { name: 'quads', rank: 'diamond' as RankTier, score: 58, recoveryStatus: 'need_recovery' as const, lastTrained: 'Today', recentVolume: 9100 },
-  { name: 'hamstrings', rank: 'silver' as RankTier, score: 36, recoveryStatus: 'need_recovery' as const, lastTrained: 'Today', recentVolume: 6200 },
-  { name: 'glutes', rank: 'gold' as RankTier, score: 48, recoveryStatus: 'need_recovery' as const, lastTrained: 'Today', recentVolume: 7800 },
-  { name: 'calves', rank: 'bronze' as RankTier, score: 18, recoveryStatus: 'ready' as const, lastTrained: '5 days ago', recentVolume: 900 },
-  { name: 'core', rank: 'silver' as RankTier, score: 28, recoveryStatus: 'ready' as const, lastTrained: '3 days ago', recentVolume: 2700 },
-];
+function getRecoveryStatus(fraction: number): 'need_recovery' | 'recovering' | 'ready' {
+  if (fraction < 0.5) return 'need_recovery';
+  if (fraction < 0.8) return 'recovering';
+  return 'ready';
+}
 
-const mockRecentPRs = [
-  { exercise: 'Barbell Back Squat', value: '140kg', date: 'Today', type: '1RM' },
-  { exercise: 'Barbell Bench Press', value: '100kg', date: '3 days ago', type: '1RM' },
-  { exercise: 'Barbell Deadlift', value: '180kg', date: '1 week ago', type: '1RM' },
-];
-
-const mockWeeklyInsights = [
-  { type: 'volume', message: 'Volume up 8.5% from last week', positive: true },
-  { type: 'neglected', message: 'Calves not trained in 5 days', positive: false },
-  { type: 'pr', message: '2 new PRs this week!', positive: true },
-];
+function formatTimeAgo(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 14) return '1 week ago';
+  return `${Math.floor(diffDays / 7)} weeks ago`;
+}
 
 export default function DashboardPage() {
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroupData | null>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/stats');
+        if (!res.ok) {
+          if (res.status === 404) {
+            // Profile not complete - redirect to onboarding
+            window.location.href = '/onboarding';
+            return;
+          }
+          throw new Error('Failed to fetch stats');
+        }
+        const data = await res.json();
+        setStats(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Something went wrong');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchStats();
+  }, []);
+
+  // Build muscle group data from API response
+  const muscleGroups: MuscleGroupData[] = stats
+    ? Object.entries(stats.muscleScores).map(([name, score]) => ({
+        name,
+        score,
+        rank: getRankTier(score),
+        recoveryStatus: getRecoveryStatus(stats.muscleRecovery[name] ?? 1),
+      }))
+    : [];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center space-y-4">
+          <p className="text-destructive">{error}</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return null;
+  }
+
+  const userName = stats.user.name || 'there';
 
   return (
     <div className="space-y-6">
@@ -73,10 +149,12 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">
-            Welcome back, {mockUserData.name}! 💪
+            Welcome back, {userName}! 💪
           </h1>
           <p className="text-muted-foreground">
-            Keep pushing — you&apos;re making great progress
+            {stats.stats.totalWorkouts > 0
+              ? "Keep pushing — you're making great progress"
+              : 'Ready to start your fitness journey?'}
           </p>
         </div>
         <Link href="/dashboard/workouts/new">
@@ -97,7 +175,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Overall Rank</p>
-                <RankBadge rank={mockUserData.overallRank} size="sm" />
+                <RankBadge rank={stats.rank.overall} size="sm" />
               </div>
             </div>
           </CardContent>
@@ -110,7 +188,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Current Streak</p>
-                <p className="text-xl font-bold">{mockUserData.streak} days</p>
+                <p className="text-xl font-bold">{stats.stats.currentStreak} days</p>
               </div>
             </div>
           </CardContent>
@@ -123,7 +201,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total Workouts</p>
-                <p className="text-xl font-bold">{mockUserData.totalWorkouts}</p>
+                <p className="text-xl font-bold">{stats.stats.totalWorkouts}</p>
               </div>
             </div>
           </CardContent>
@@ -138,11 +216,11 @@ export default function DashboardPage() {
                 <p className="text-xs text-muted-foreground">Weekly Volume</p>
                 <div className="flex items-baseline gap-1">
                   <p className="text-xl font-bold">
-                    {(mockUserData.weeklyVolume / 1000).toFixed(1)}k
+                    {stats.stats.weeklyVolume > 0
+                      ? `${(stats.stats.weeklyVolume / 1000).toFixed(1)}k`
+                      : '0'}
                   </p>
-                  <span className="text-xs text-green-500">
-                    +{mockUserData.weeklyChange}%
-                  </span>
+                  <span className="text-xs text-muted-foreground">kg</span>
                 </div>
               </div>
             </div>
@@ -162,8 +240,8 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <RankProgress
-                currentScore={mockUserData.overallScore}
-                currentRank={mockUserData.overallRank}
+                currentScore={stats.rank.score}
+                currentRank={stats.rank.overall}
               />
             </CardContent>
           </Card>
@@ -188,7 +266,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <AnatomyVisualization
-                muscleGroups={mockMuscleGroups}
+                muscleGroups={muscleGroups}
                 onMuscleClick={setSelectedMuscle}
               />
 
@@ -210,15 +288,6 @@ export default function DashboardPage() {
                       <span className="font-medium">{selectedMuscle.score}/100</span>
                     </div>
                     <Progress value={selectedMuscle.score} className="h-2" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Recent volume</span>
-                      <span className="font-medium">
-                        {selectedMuscle.recentVolume ? `${selectedMuscle.recentVolume.toLocaleString()} kg` : 'n/a'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Last trained: {selectedMuscle.lastTrained}
-                    </p>
                   </div>
                 </div>
               )}
@@ -236,7 +305,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {['ready', 'recovering', 'need_recovery'].map((status) => {
-                const muscles = mockMuscleGroups.filter(
+                const muscles = muscleGroups.filter(
                   (m) => m.recoveryStatus === status
                 );
                 if (muscles.length === 0) return null;
@@ -258,6 +327,11 @@ export default function DashboardPage() {
                   </div>
                 );
               })}
+              {muscleGroups.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Log your first workout to see recovery status
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -270,42 +344,50 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {mockRecentPRs.map((pr, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between p-2 bg-muted/50 rounded-lg"
-                >
-                  <div>
-                    <p className="text-sm font-medium">{pr.exercise}</p>
-                    <p className="text-xs text-muted-foreground">{pr.date}</p>
+              {stats.recentPRs.length > 0 ? (
+                stats.recentPRs.map((pr, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between p-2 bg-muted/50 rounded-lg"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{pr.exercise}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeAgo(pr.date)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-primary">{Math.round(pr.estimated1RM)}kg</p>
+                      <p className="text-xs text-muted-foreground">Est. 1RM</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-primary">{pr.value}</p>
-                    <p className="text-xs text-muted-foreground">{pr.type}</p>
-                  </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No PRs yet. Start logging workouts!
+                </p>
+              )}
             </CardContent>
           </Card>
 
-          {/* Weekly Insights */}
+          {/* Quick Actions */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Weekly Insights</CardTitle>
+              <CardTitle className="text-lg">Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {mockWeeklyInsights.map((insight, i) => (
-                <div
-                  key={i}
-                  className={`p-3 rounded-lg text-sm ${
-                    insight.positive
-                      ? 'bg-green-500/10 text-green-400'
-                      : 'bg-yellow-500/10 text-yellow-400'
-                  }`}
-                >
-                  {insight.message}
-                </div>
-              ))}
+              <Link href="/dashboard/workouts/new" className="block">
+                <Button variant="outline" className="w-full justify-start gap-2">
+                  <Plus className="h-4 w-4" />
+                  Log a Workout
+                </Button>
+              </Link>
+              <Link href="/dashboard/profile" className="block">
+                <Button variant="outline" className="w-full justify-start gap-2">
+                  <TrendingUp className="h-4 w-4" />
+                  Update Body Weight
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </div>

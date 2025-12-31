@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { signIn } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import {
   Dumbbell,
   Loader2,
@@ -53,8 +53,10 @@ const STEPS = [
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [step, setStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<OnboardingData>({
     age: '',
     sex: '',
@@ -101,28 +103,54 @@ export default function OnboardingPage() {
   };
 
   const handleComplete = async () => {
+    // Wait for session to be ready
+    if (status === 'loading') {
+      return;
+    }
+
+    if (status === 'unauthenticated' || !session) {
+      setError('You must be logged in to complete setup. Redirecting to login...');
+      setTimeout(() => router.push('/login'), 2000);
+      return;
+    }
+
     setIsLoading(true);
+    setError(null);
     try {
+      // Convert age to birthDate (approximate)
+      const age = parseInt(data.age);
+      const birthDate = age ? new Date(new Date().getFullYear() - age, 0, 1).toISOString() : null;
+
+      // Convert units if using imperial
+      const isMetric = data.preferredUnits === 'kg';
+      const height = parseFloat(data.heightCm) || null;
+      const bodyWeight = parseFloat(data.weightKg) || null;
+
       const res = await fetch('/api/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          age: parseInt(data.age) || null,
+          birthDate,
           sex: data.sex || null,
-          heightCm: parseFloat(data.heightCm) || null,
-          weightKg: parseFloat(data.weightKg) || null,
+          height,
+          heightUnit: isMetric ? 'cm' : 'in',
+          bodyWeight,
+          weightUnit: isMetric ? 'kg' : 'lb',
           trainingAgeYears: parseFloat(data.trainingAgeYears) || 0,
           preferredUnits: data.preferredUnits,
         }),
       });
 
       if (res.ok) {
-        // Sign in if not already
-        await signIn('credentials', { redirect: false });
         router.push('/dashboard');
+      } else {
+        const errorData = await res.json();
+        setError(errorData.error || 'Failed to save profile. Please try again.');
+        console.error('Failed to save profile:', errorData);
       }
-    } catch (error) {
-      console.error('Failed to save profile:', error);
+    } catch (err) {
+      setError('Something went wrong. Please try again.');
+      console.error('Failed to save profile:', err);
     } finally {
       setIsLoading(false);
     }
@@ -301,6 +329,15 @@ export default function OnboardingPage() {
     }
   };
 
+  // Show loading state while checking session
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   const StepIcon = STEPS[step].icon;
 
   return (
@@ -315,6 +352,13 @@ export default function OnboardingPage() {
             RankedGym
           </span>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm text-center">
+            {error}
+          </div>
+        )}
 
         {/* Progress */}
         <div className="space-y-2">

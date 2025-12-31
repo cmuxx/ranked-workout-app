@@ -4,16 +4,15 @@ import { PrismaAdapter } from '@auth/prisma-adapter';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db';
+import { authConfig } from './auth.config';
 
-export const authConfig: NextAuthConfig = {
+/**
+ * Full auth configuration with PrismaAdapter and Credentials provider
+ * Use this for API routes (NOT for middleware, which runs in Edge runtime)
+ */
+const fullAuthConfig: NextAuthConfig = {
+  ...authConfig,
   adapter: PrismaAdapter(prisma) as never,
-  session: {
-    strategy: 'jwt',
-  },
-  pages: {
-    signIn: '/login',
-    newUser: '/onboarding',
-  },
   providers: [
     Credentials({
       name: 'credentials',
@@ -52,23 +51,9 @@ export const authConfig: NextAuthConfig = {
       },
     }),
   ],
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
-      }
-      return session;
-    },
-  },
 };
 
-export const { handlers, signIn, signOut, auth } = NextAuth(authConfig);
+export const { handlers, signIn, signOut, auth } = NextAuth(fullAuthConfig);
 
 // For API routes that need the auth options
-export const authOptions = authConfig;
+export const authOptions = fullAuthConfig;

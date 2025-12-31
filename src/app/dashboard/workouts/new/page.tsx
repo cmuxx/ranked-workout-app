@@ -55,6 +55,13 @@ interface ExerciseData {
   dumbbellMode?: 'single' | 'paired';
 }
 
+interface Exercise {
+  id: string;
+  name: string;
+  equipment: string;
+  primaryMuscle: string;
+}
+
 const WORKOUT_TYPES = [
   { value: 'push', label: 'Push' },
   { value: 'pull', label: 'Pull' },
@@ -63,22 +70,6 @@ const WORKOUT_TYPES = [
   { value: 'lower', label: 'Lower Body' },
   { value: 'full_body', label: 'Full Body' },
   { value: 'custom', label: 'Custom' },
-];
-
-// Mock exercises - will be replaced with API call
-const MOCK_EXERCISES = [
-  { id: '1', name: 'Barbell Bench Press', equipment: 'barbell', muscle: 'chest' },
-  { id: '2', name: 'Incline Dumbbell Press', equipment: 'dumbbell', muscle: 'chest' },
-  { id: '3', name: 'Cable Fly', equipment: 'cable', muscle: 'chest' },
-  { id: '4', name: 'Barbell Back Squat', equipment: 'barbell', muscle: 'quads' },
-  { id: '5', name: 'Leg Press', equipment: 'machine', muscle: 'quads' },
-  { id: '6', name: 'Romanian Deadlift', equipment: 'barbell', muscle: 'hamstrings' },
-  { id: '7', name: 'Lat Pulldown', equipment: 'cable', muscle: 'back' },
-  { id: '8', name: 'Barbell Row', equipment: 'barbell', muscle: 'back' },
-  { id: '9', name: 'Overhead Press', equipment: 'barbell', muscle: 'shoulders' },
-  { id: '10', name: 'Lateral Raise', equipment: 'dumbbell', muscle: 'shoulders' },
-  { id: '11', name: 'Barbell Curl', equipment: 'barbell', muscle: 'biceps' },
-  { id: '12', name: 'Tricep Pushdown', equipment: 'cable', muscle: 'triceps' },
 ];
 
 function generateId() {
@@ -106,6 +97,29 @@ export default function NewWorkoutPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [restTimer, setRestTimer] = useState<number | null>(null);
   const [restTimeRemaining, setRestTimeRemaining] = useState(0);
+  const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
+  const [isLoadingExercises, setIsLoadingExercises] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [workoutStartTime] = useState(() => new Date());
+
+  // Fetch exercises from API
+  useEffect(() => {
+    async function fetchExercises() {
+      setIsLoadingExercises(true);
+      try {
+        const res = await fetch('/api/exercises');
+        if (res.ok) {
+          const data = await res.json();
+          setAvailableExercises(data.exercises || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch exercises:', error);
+      } finally {
+        setIsLoadingExercises(false);
+      }
+    }
+    fetchExercises();
+  }, []);
 
   // Rest timer
   useEffect(() => {
@@ -117,11 +131,11 @@ export default function NewWorkoutPage() {
     }
   }, [restTimeRemaining]);
 
-  const filteredExercises = MOCK_EXERCISES.filter((ex) =>
+  const filteredExercises = availableExercises.filter((ex) =>
     ex.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const addExercise = (exercise: (typeof MOCK_EXERCISES)[0]) => {
+  const addExercise = (exercise: Exercise) => {
     const newExercise: ExerciseData = {
       id: generateId(),
       exerciseId: exercise.id,
@@ -197,12 +211,58 @@ export default function NewWorkoutPage() {
 
   const handleSave = async () => {
     setIsSaving(true);
+    setSaveError(null);
+    
     try {
-      // TODO: Save workout to API
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Build the session payload
+      const payload = {
+        name: workoutName || undefined,
+        type: workoutType || 'custom',
+        startTime: workoutStartTime.toISOString(),
+        endTime: new Date().toISOString(),
+        exercises: exercises.map((ex) => ({
+          exerciseId: ex.exerciseId,
+          sets: ex.sets
+            .filter((s) => s.completed && s.weight && s.reps)
+            .map((s) => ({
+              reps: parseInt(s.reps),
+              weight: parseFloat(s.weight),
+              rpe: s.rpe ? parseFloat(s.rpe) : null,
+              isWarmup: s.isWarmup,
+              isDumbbellPair: ex.dumbbellMode === 'paired',
+            })),
+        })).filter((ex) => ex.sets.length > 0),
+      };
+
+      if (payload.exercises.length === 0) {
+        setSaveError('Complete at least one set before saving');
+        setIsSaving(false);
+        return;
+      }
+
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to save workout');
+      }
+
+      const data = await res.json();
+      
+      // Show PR notification if any
+      if (data.newPRs && data.newPRs.length > 0) {
+        // Could add a toast notification here
+        console.log('New PRs:', data.newPRs);
+      }
+
       router.push('/dashboard/workouts');
     } catch (error) {
       console.error('Failed to save workout:', error);
+      setSaveError(error instanceof Error ? error.message : 'Failed to save workout');
     } finally {
       setIsSaving(false);
     }
@@ -246,6 +306,13 @@ export default function NewWorkoutPage() {
           Save Workout
         </Button>
       </div>
+
+      {/* Save Error */}
+      {saveError && (
+        <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
+          {saveError}
+        </div>
+      )}
 
       {/* Workout Info */}
       <Card>
@@ -522,22 +589,27 @@ export default function NewWorkoutPage() {
                 />
               </div>
               <div className="max-h-64 overflow-y-auto space-y-1">
-                {filteredExercises.map((exercise) => (
-                  <button
-                    key={exercise.id}
-                    className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-muted transition-colors text-left"
-                    onClick={() => addExercise(exercise)}
-                  >
-                    <div>
-                      <p className="font-medium text-sm">{exercise.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">
-                        {exercise.muscle} • {exercise.equipment}
-                      </p>
-                    </div>
-                    <Plus className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                ))}
-                {filteredExercises.length === 0 && (
+                {isLoadingExercises ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : filteredExercises.length > 0 ? (
+                  filteredExercises.map((exercise) => (
+                    <button
+                      key={exercise.id}
+                      className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-muted transition-colors text-left"
+                      onClick={() => addExercise(exercise)}
+                    >
+                      <div>
+                        <p className="font-medium text-sm">{exercise.name}</p>
+                        <p className="text-xs text-muted-foreground capitalize">
+                          {exercise.primaryMuscle} • {exercise.equipment}
+                        </p>
+                      </div>
+                      <Plus className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  ))
+                ) : (
                   <p className="text-center text-sm text-muted-foreground py-4">
                     No exercises found
                   </p>
