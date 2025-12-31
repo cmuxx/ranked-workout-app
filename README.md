@@ -1,36 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ranked Gym Progress
+A self-hostable, open-source web app that gamifies strength and hypertrophy training using ranked muscle-group progression, recovery readiness, streaks, PR tracking, and insights.
+
+This is built to feel like a ranked mode in games (Bronze → Unreal), but for the gym.
+
+## Disclaimer
+This app is for educational and motivational purposes only. It is not medical advice. If you have injuries or medical conditions, consult a qualified professional.
+
+---
+
+## Features (Planned MVP)
+- Accounts + user profiles (age, sex, height, weight, training age)
+- Workout logging (sessions, exercises, sets, reps, load, optional RPE/RIR)
+- Strength scoring (per exercise, per muscle group, overall)
+- Rank tiers (Bronze, Silver, Gold, Diamond, Champion, Elite, Unreal)
+- Rank progression for consistency and performance improvement
+- Rank decay with inactivity (per muscle group)
+- Recovery readiness states per muscle group (Need Recovery, Recovering, Ready)
+- PR tracking (estimated 1RM PR, load PR)
+- Streaks + calendar heatmap
+- Muscle-group anatomy visualization (color-coded by rank)
+- Weekly insights (volume trends, neglected muscle groups, PR recap)
+
+---
+
+## Tech Stack (intended)
+- Next.js + TypeScript
+- Tailwind CSS
+- Database: PostgreSQL or SQLite
+- Prisma ORM
+
+---
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+- Node.js (LTS recommended)
+- npm
+- A database (Postgres recommended for self-host)
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+### Local development
+1. Install dependencies:
+   - `npm install`
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Create environment file:
+   - Copy `.env.example` to `.env`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Run DB migrations:
+   - `npx prisma migrate dev`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Start dev server:
+   - `npm run dev`
 
-## Learn More
+Open:
+- `http://localhost:3000`
 
-To learn more about Next.js, take a look at the following resources:
+### Scripts
+- `npm run dev` Start development server
+- `npm run build` Production build
+- `npm run start` Run production server
+- `npm run lint` Lint
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Configuration
+Scoring, rank thresholds, decay, and recovery parameters should be configurable.
+Planned approach:
+- `config/scoring.json` for global defaults
+- Optional per-user tuning later
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Roadmap (High Level)
+- MVP logging flow + profile
+- Strength score + ranks
+- Recovery readiness + streak heatmap
+- Anatomy visualization
+- Insights dashboard
+- Self-host docs and example deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## Contributing
+See `CONTRIBUTING.md`.
+
+---
+
+## License
+MIT (recommended). Final license will be confirmed in the repo.
+
+---
+
+## Project Philosophy
+- Keep the logging flow simple
+- Make progress visible and motivating
+- Use sensible, transparent scoring logic
+- Prefer defaults that work for most users, then allow calibration
