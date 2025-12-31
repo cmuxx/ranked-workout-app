@@ -20,13 +20,45 @@ interface AnatomyVisualizationProps {
   showLabels?: boolean;
 }
 
-// Color scale for muscle intensity (0-100 score)
-function getIntensityColor(score: number): string {
-  if (score === 0) return 'transparent';
-  const intensity = Math.min(score / 100, 1);
-  if (intensity < 0.3) return `rgba(239, 68, 68, ${0.3 + intensity})`;
-  if (intensity < 0.6) return `rgba(239, 68, 68, ${0.5 + intensity * 0.5})`;
-  return `rgba(220, 38, 38, ${0.8 + intensity * 0.2})`;
+// Rank-based colors matching the game's rank system
+const rankColors: Record<RankTier, { fill: string; stroke: string; glow?: string }> = {
+  bronze: { 
+    fill: 'rgba(205, 127, 50, 0.7)', 
+    stroke: '#CD7F32',
+  },
+  silver: { 
+    fill: 'rgba(192, 192, 192, 0.7)', 
+    stroke: '#C0C0C0',
+  },
+  gold: { 
+    fill: 'rgba(255, 215, 0, 0.75)', 
+    stroke: '#FFD700',
+  },
+  diamond: { 
+    fill: 'rgba(185, 242, 255, 0.75)', 
+    stroke: '#B9F2FF',
+    glow: '0 0 8px rgba(185, 242, 255, 0.6)',
+  },
+  champion: { 
+    fill: 'rgba(155, 89, 182, 0.75)', 
+    stroke: '#9B59B6',
+    glow: '0 0 10px rgba(155, 89, 182, 0.6)',
+  },
+  elite: { 
+    fill: 'rgba(231, 76, 60, 0.8)', 
+    stroke: '#E74C3C',
+    glow: '0 0 12px rgba(231, 76, 60, 0.6)',
+  },
+  unreal: { 
+    fill: 'rgba(255, 0, 255, 0.8)', 
+    stroke: '#FF00FF',
+    glow: '0 0 15px rgba(255, 0, 255, 0.8)',
+  },
+};
+
+// Get color based on rank
+function getRankColor(rank: RankTier): { fill: string; stroke: string; glow?: string } {
+  return rankColors[rank];
 }
 
 // Detailed anatomical SVG paths for front view
@@ -263,21 +295,25 @@ const muscleGroupMapping: Record<string, string> = {
 function MusclePath({
   id,
   pathData,
-  score,
+  rank,
   isSelected,
   onClick,
   showLabel,
+  score,
 }: {
   id: string;
   pathData: { path: string; label: string; labelPos: { x: number; y: number } };
-  score: number;
+  rank: RankTier | null;
   isSelected: boolean;
   onClick?: () => void;
   showLabel?: boolean;
+  score?: number;
 }) {
-  const fillColor = score > 0 ? getIntensityColor(score) : 'transparent';
-  const strokeColor = isSelected ? '#ef4444' : '#60a5fa';
-  const strokeWidth = isSelected ? 1.5 : 0.8;
+  const colors = rank ? getRankColor(rank) : null;
+  const fillColor = colors ? colors.fill : 'transparent';
+  const strokeColor = isSelected ? '#ffffff' : (colors ? colors.stroke : '#60a5fa');
+  const strokeWidth = isSelected ? 2 : (rank ? 1.2 : 0.8);
+  const glowEffect = colors?.glow;
 
   return (
     <g
@@ -294,18 +330,24 @@ function MusclePath({
         strokeWidth={strokeWidth}
         strokeLinejoin="round"
         className="transition-all duration-300"
+        style={{
+          filter: glowEffect ? `drop-shadow(${glowEffect})` : undefined,
+        }}
       />
-      {showLabel && pathData.label && score > 20 && (
+      {showLabel && pathData.label && rank && (
         <text
           x={pathData.labelPos.x}
           y={pathData.labelPos.y}
           textAnchor="middle"
           fontSize="4"
-          fill="white"
+          fill={rank === 'gold' || rank === 'silver' ? '#000' : '#fff'}
           fontWeight="600"
           className="pointer-events-none"
+          style={{
+            textShadow: '0 0 2px rgba(0,0,0,0.5)',
+          }}
         >
-          {Math.round(score)}
+          {score ? Math.round(score) : ''}
         </text>
       )}
     </g>
@@ -403,17 +445,21 @@ export function AnatomyVisualization({
             strokeOpacity="0.3"
           />
           
-          {Object.entries(frontMuscles).map(([id, pathData]) => (
-            <MusclePath
-              key={id}
-              id={id}
-              pathData={pathData}
-              score={getScore(id)}
-              isSelected={isSelected(id)}
-              onClick={() => handleClick(id)}
-              showLabel={showLabels}
-            />
-          ))}
+          {Object.entries(frontMuscles).map(([id, pathData]) => {
+            const data = getMuscleData(id);
+            return (
+              <MusclePath
+                key={id}
+                id={id}
+                pathData={pathData}
+                rank={data?.rank || null}
+                score={data?.score}
+                isSelected={isSelected(id)}
+                onClick={() => handleClick(id)}
+                showLabel={showLabels}
+              />
+            );
+          })}
         </svg>
       </div>
 
@@ -438,17 +484,21 @@ export function AnatomyVisualization({
             strokeOpacity="0.3"
           />
           
-          {Object.entries(backMuscles).map(([id, pathData]) => (
-            <MusclePath
-              key={id}
-              id={id}
-              pathData={pathData}
-              score={getScore(id)}
-              isSelected={isSelected(id)}
-              onClick={() => handleClick(id)}
-              showLabel={showLabels}
-            />
-          ))}
+          {Object.entries(backMuscles).map(([id, pathData]) => {
+            const data = getMuscleData(id);
+            return (
+              <MusclePath
+                key={id}
+                id={id}
+                pathData={pathData}
+                rank={data?.rank || null}
+                score={data?.score}
+                isSelected={isSelected(id)}
+                onClick={() => handleClick(id)}
+                showLabel={showLabels}
+              />
+            );
+          })}
         </svg>
       </div>
     </div>
@@ -492,27 +542,38 @@ export function RecoveryIndicator({ status, className }: RecoveryIndicatorProps)
 
 // Legend component for the visualization
 export function AnatomyLegend({ className }: { className?: string }) {
-  const levels = [
-    { label: 'Not trained', color: 'transparent', border: true },
-    { label: 'Beginner', color: 'rgba(239, 68, 68, 0.3)' },
-    { label: 'Intermediate', color: 'rgba(239, 68, 68, 0.6)' },
-    { label: 'Advanced', color: 'rgba(220, 38, 38, 0.85)' },
+  const ranks: { label: string; rank: RankTier }[] = [
+    { label: 'Bronze', rank: 'bronze' },
+    { label: 'Silver', rank: 'silver' },
+    { label: 'Gold', rank: 'gold' },
+    { label: 'Diamond', rank: 'diamond' },
+    { label: 'Champion', rank: 'champion' },
+    { label: 'Elite', rank: 'elite' },
+    { label: 'Unreal', rank: 'unreal' },
   ];
 
   return (
-    <div className={cn('flex flex-wrap gap-3 justify-center', className)}>
-      {levels.map((level) => (
-        <div key={level.label} className="flex items-center gap-1.5">
-          <div
-            className={cn(
-              'w-3 h-3 rounded-sm',
-              level.border && 'border border-blue-400'
-            )}
-            style={{ backgroundColor: level.color }}
-          />
-          <span className="text-xs text-muted-foreground">{level.label}</span>
-        </div>
-      ))}
+    <div className={cn('flex flex-wrap gap-2 justify-center', className)}>
+      <div className="flex items-center gap-1.5">
+        <div className="w-3 h-3 rounded-sm border border-blue-400" style={{ backgroundColor: 'transparent' }} />
+        <span className="text-xs text-muted-foreground">Untrained</span>
+      </div>
+      {ranks.map(({ label, rank }) => {
+        const colors = getRankColor(rank);
+        return (
+          <div key={rank} className="flex items-center gap-1.5">
+            <div
+              className="w-3 h-3 rounded-sm"
+              style={{ 
+                backgroundColor: colors.fill,
+                border: `1px solid ${colors.stroke}`,
+                boxShadow: colors.glow,
+              }}
+            />
+            <span className="text-xs text-muted-foreground">{label}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
