@@ -271,9 +271,23 @@ export default function NewWorkoutPage() {
 
   const addSet = (exerciseId: string) => {
     setExercises(
-      exercises.map((e) =>
-        e.id === exerciseId ? { ...e, sets: [...e.sets, createEmptySet()] } : e
-      )
+      exercises.map((e) => {
+        if (e.id !== exerciseId) return e;
+        
+        // Get the last non-warmup set to copy values from
+        const lastSet = [...e.sets].reverse().find(s => !s.isWarmup) || e.sets[e.sets.length - 1];
+        
+        const newSet: SetData = {
+          id: generateId(),
+          reps: lastSet?.reps || '',
+          weight: lastSet?.weight || '',
+          rpe: lastSet?.rpe || '',
+          isWarmup: false,
+          completed: false,
+        };
+        
+        return { ...e, sets: [...e.sets, newSet] };
+      })
     );
   };
 
