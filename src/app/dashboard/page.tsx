@@ -40,16 +40,16 @@ const mockUserData = {
 };
 
 const mockMuscleGroups = [
-  { name: 'chest', rank: 'gold' as RankTier, score: 52, recoveryStatus: 'ready' as const, lastTrained: '2 days ago' },
-  { name: 'back', rank: 'silver' as RankTier, score: 38, recoveryStatus: 'recovering' as const, lastTrained: '1 day ago' },
-  { name: 'shoulders', rank: 'gold' as RankTier, score: 45, recoveryStatus: 'ready' as const, lastTrained: '3 days ago' },
-  { name: 'biceps', rank: 'silver' as RankTier, score: 35, recoveryStatus: 'ready' as const, lastTrained: '2 days ago' },
-  { name: 'triceps', rank: 'silver' as RankTier, score: 32, recoveryStatus: 'ready' as const, lastTrained: '2 days ago' },
-  { name: 'quads', rank: 'diamond' as RankTier, score: 58, recoveryStatus: 'need_recovery' as const, lastTrained: 'Today' },
-  { name: 'hamstrings', rank: 'silver' as RankTier, score: 36, recoveryStatus: 'need_recovery' as const, lastTrained: 'Today' },
-  { name: 'glutes', rank: 'gold' as RankTier, score: 48, recoveryStatus: 'need_recovery' as const, lastTrained: 'Today' },
-  { name: 'calves', rank: 'bronze' as RankTier, score: 18, recoveryStatus: 'ready' as const, lastTrained: '5 days ago' },
-  { name: 'core', rank: 'silver' as RankTier, score: 28, recoveryStatus: 'ready' as const, lastTrained: '3 days ago' },
+  { name: 'chest', rank: 'gold' as RankTier, score: 52, recoveryStatus: 'ready' as const, lastTrained: '2 days ago', recentVolume: 5200 },
+  { name: 'back', rank: 'silver' as RankTier, score: 38, recoveryStatus: 'recovering' as const, lastTrained: '1 day ago', recentVolume: 6100 },
+  { name: 'shoulders', rank: 'gold' as RankTier, score: 45, recoveryStatus: 'ready' as const, lastTrained: '3 days ago', recentVolume: 3400 },
+  { name: 'biceps', rank: 'silver' as RankTier, score: 35, recoveryStatus: 'ready' as const, lastTrained: '2 days ago', recentVolume: 2100 },
+  { name: 'triceps', rank: 'silver' as RankTier, score: 32, recoveryStatus: 'ready' as const, lastTrained: '2 days ago', recentVolume: 1900 },
+  { name: 'quads', rank: 'diamond' as RankTier, score: 58, recoveryStatus: 'need_recovery' as const, lastTrained: 'Today', recentVolume: 9100 },
+  { name: 'hamstrings', rank: 'silver' as RankTier, score: 36, recoveryStatus: 'need_recovery' as const, lastTrained: 'Today', recentVolume: 6200 },
+  { name: 'glutes', rank: 'gold' as RankTier, score: 48, recoveryStatus: 'need_recovery' as const, lastTrained: 'Today', recentVolume: 7800 },
+  { name: 'calves', rank: 'bronze' as RankTier, score: 18, recoveryStatus: 'ready' as const, lastTrained: '5 days ago', recentVolume: 900 },
+  { name: 'core', rank: 'silver' as RankTier, score: 28, recoveryStatus: 'ready' as const, lastTrained: '3 days ago', recentVolume: 2700 },
 ];
 
 const mockRecentPRs = [
@@ -210,6 +210,12 @@ export default function DashboardPage() {
                       <span className="font-medium">{selectedMuscle.score}/100</span>
                     </div>
                     <Progress value={selectedMuscle.score} className="h-2" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Recent volume</span>
+                      <span className="font-medium">
+                        {selectedMuscle.recentVolume ? `${selectedMuscle.recentVolume.toLocaleString()} kg` : 'n/a'}
+                      </span>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       Last trained: {selectedMuscle.lastTrained}
                     </p>
