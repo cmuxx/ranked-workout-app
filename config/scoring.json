@@ -1,6 +1,6 @@
 {
   "$schema": "./scoring.schema.json",
-  "version": "1.0.0",
+  "version": "1.1.0",
   
   "rankTiers": {
     "bronze": { "min": 0, "max": 25, "color": "#CD7F32" },
@@ -13,10 +13,81 @@
 
   "scoring": {
     "allometricExponent": 0.67,
-    "baseScoreMultiplier": 50,
-    "baseScoreOffset": 0,
     "maxScore": 100,
-    "minScore": 0
+    "minScore": 0,
+    "strengthWeight": 0.75,
+    "volumeWeight": 0.25,
+    "percentileToScore": {
+      "comment": "Maps percentile ranges to score ranges. Average (50th) = Silver (~37)",
+      "bands": [
+        { "percentileMin": 0, "percentileMax": 30, "scoreMin": 0, "scoreMax": 25 },
+        { "percentileMin": 30, "percentileMax": 75, "scoreMin": 25, "scoreMax": 50 },
+        { "percentileMin": 75, "percentileMax": 90, "scoreMin": 50, "scoreMax": 70 },
+        { "percentileMin": 90, "percentileMax": 97, "scoreMin": 70, "scoreMax": 85 },
+        { "percentileMin": 97, "percentileMax": 99, "scoreMin": 85, "scoreMax": 95 },
+        { "percentileMin": 99, "percentileMax": 100, "scoreMin": 95, "scoreMax": 100 }
+      ]
+    },
+    "strengthStandardPercentiles": {
+      "comment": "Relative strength ratios (1RM/BW^0.67) at each percentile level by sex",
+      "male": {
+        "beginner": { "percentile": 5, "relStrength": 0.4 },
+        "novice": { "percentile": 20, "relStrength": 0.6 },
+        "intermediate": { "percentile": 50, "relStrength": 0.85 },
+        "advanced": { "percentile": 80, "relStrength": 1.1 },
+        "elite": { "percentile": 95, "relStrength": 1.4 }
+      },
+      "female": {
+        "beginner": { "percentile": 5, "relStrength": 0.25 },
+        "novice": { "percentile": 20, "relStrength": 0.4 },
+        "intermediate": { "percentile": 50, "relStrength": 0.55 },
+        "advanced": { "percentile": 80, "relStrength": 0.75 },
+        "elite": { "percentile": 95, "relStrength": 0.95 }
+      }
+    }
+  },
+
+  "recency": {
+    "halfLifeDays": 28,
+    "comment": "PRs decay with 28-day half-life to reward consistent training"
+  },
+
+  "evidenceGating": {
+    "comment": "Require minimum training exposure before allowing high ranks",
+    "silverCap": {
+      "maxScore": 49,
+      "requirements": {
+        "minSessions": 0,
+        "windowDays": 28
+      }
+    },
+    "goldCap": {
+      "maxScore": 69,
+      "requirements": {
+        "minSessions": 3,
+        "windowDays": 28
+      }
+    },
+    "diamondCap": {
+      "maxScore": 84,
+      "requirements": {
+        "minSessions": 6,
+        "windowDays": 56
+      }
+    },
+    "noCap": {
+      "requirements": {
+        "minSessions": 10,
+        "windowDays": 56
+      }
+    }
+  },
+
+  "confidenceGating": {
+    "comment": "Only count sets as strength tests if they meet these criteria",
+    "maxReps": 10,
+    "maxRIR": 3,
+    "minRPE": 7
   },
 
   "oneRmEstimation": {

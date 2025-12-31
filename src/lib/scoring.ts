@@ -104,15 +104,84 @@ export function getAgeAdjustmentFactor(age: number): number {
 // ============================================================================
 
 /**
- * Calculate exercise strength score (0-100) from relative strength
+ * Get percentile from relative strength using piecewise linear interpolation
+ * Based on strength standards for the given sex
  */
-export function exerciseStrengthScore(relStrength: number, relNorm: number): number {
-  if (relNorm <= 0) return 0;
+export function getPercentileFromRelStrength(relStrength: number, sex: string): number {
+  const standards = sex === 'female' 
+    ? scoringConfig.scoring.strengthStandardPercentiles.female
+    : scoringConfig.scoring.strengthStandardPercentiles.male;
   
-  const ratio = relStrength / relNorm;
-  const { baseScoreMultiplier, baseScoreOffset, maxScore, minScore } = scoringConfig.scoring;
+  const levels = [
+    standards.beginner,
+    standards.novice,
+    standards.intermediate,
+    standards.advanced,
+    standards.elite,
+  ];
   
-  const score = baseScoreMultiplier * ratio + baseScoreOffset;
+  // Below beginner
+  if (relStrength <= levels[0].relStrength) {
+    return (relStrength / levels[0].relStrength) * levels[0].percentile;
+  }
+  
+  // Above elite
+  if (relStrength >= levels[4].relStrength) {
+    // Extrapolate slightly above elite, cap at 99.9
+    const extra = (relStrength - levels[4].relStrength) / levels[4].relStrength;
+    return Math.min(99.9, levels[4].percentile + extra * 4);
+  }
+  
+  // Interpolate between levels
+  for (let i = 0; i < levels.length - 1; i++) {
+    if (relStrength >= levels[i].relStrength && relStrength < levels[i + 1].relStrength) {
+      const range = levels[i + 1].relStrength - levels[i].relStrength;
+      const progress = (relStrength - levels[i].relStrength) / range;
+      const percentileRange = levels[i + 1].percentile - levels[i].percentile;
+      return levels[i].percentile + progress * percentileRange;
+    }
+  }
+  
+  return 50; // Default to intermediate
+}
+
+/**
+ * Convert percentile to score (0-100) using configured bands
+ * Maps so that 50th percentile (average) = ~37 (Silver)
+ */
+export function percentileToScore(percentile: number): number {
+  const bands = scoringConfig.scoring.percentileToScore.bands;
+  
+  for (const band of bands) {
+    if (percentile >= band.percentileMin && percentile < band.percentileMax) {
+      const percentileRange = band.percentileMax - band.percentileMin;
+      const scoreRange = band.scoreMax - band.scoreMin;
+      const progress = (percentile - band.percentileMin) / percentileRange;
+      return band.scoreMin + progress * scoreRange;
+    }
+  }
+  
+  // Handle edge case of exactly 100th percentile
+  if (percentile >= 99) {
+    return scoringConfig.scoring.maxScore;
+  }
+  
+  return 0;
+}
+
+/**
+ * Calculate exercise strength score (0-100) from relative strength
+ * Uses percentile-based mapping for more accurate ranking
+ */
+export function exerciseStrengthScore(relStrength: number, sex: string, strengthStandard: number = 1.0): number {
+  // Adjust relative strength by the exercise's strength standard
+  // Higher standard = harder exercise = lower expected relative strength
+  const adjustedRelStrength = relStrength / strengthStandard;
+  
+  const percentile = getPercentileFromRelStrength(adjustedRelStrength, sex);
+  const score = percentileToScore(percentile);
+  
+  const { maxScore, minScore } = scoringConfig.scoring;
   return Math.max(minScore, Math.min(maxScore, score));
 }
 
@@ -129,16 +198,141 @@ export function calculateStrengthScore(
   const relStrength = allometricRelativeStrength(oneRmKg, bodyweightKg);
   const ageAdjustment = getAgeAdjustmentFactor(age);
   
-  // Base relative norm varies by sex
-  const baseRelNorm = sex === 'female' ? 0.8 : 1.0;
-  const relNorm = baseRelNorm * strengthStandard;
+  // Apply age adjustment to boost older lifters' relative strength
+  const adjustedRelStrength = relStrength * ageAdjustment;
   
-  const score = exerciseStrengthScore(relStrength * ageAdjustment, relNorm);
+  const score = exerciseStrengthScore(adjustedRelStrength, sex, strengthStandard);
   return score;
 }
 
 /**
- * Calculate volume-weighted muscle group score
+ * Apply recency decay to a score based on days since the PR
+ * Uses exponential decay with configurable half-life
+ */
+export function applyRecencyDecay(score: number, daysSincePR: number): number {
+  const halfLife = scoringConfig.recency.halfLifeDays;
+  const decayFactor = Math.pow(0.5, daysSincePR / halfLife);
+  return score * decayFactor;
+}
+
+/**
+ * Calculate volume score (0-100) based on weekly hard sets
+ * Uses MEV/MAV/MRV landmarks for the user's training level
+ */
+export function calculateVolumeScore(
+  weeklyHardSets: number,
+  trainingAgeYears: number
+): number {
+  const landmarks = getVolumeLandmarks(trainingAgeYears);
+  const mev = landmarks.MEV;
+  const mavLow = landmarks.MAV[0];
+  const mavHigh = landmarks.MAV[1];
+  const mrv = landmarks.MRV;
+  
+  if (weeklyHardSets <= 0) return 0;
+  
+  // Below MEV: ramp 0 → 70
+  if (weeklyHardSets < mev) {
+    return (weeklyHardSets / mev) * 70;
+  }
+  
+  // MEV → MAV low: ramp 70 → 85
+  if (weeklyHardSets < mavLow) {
+    const progress = (weeklyHardSets - mev) / (mavLow - mev);
+    return 70 + progress * 15;
+  }
+  
+  // MAV low → MAV high: ramp 85 → 100
+  if (weeklyHardSets < mavHigh) {
+    const progress = (weeklyHardSets - mavLow) / (mavHigh - mavLow);
+    return 85 + progress * 15;
+  }
+  
+  // MAV high → MRV: slowly fall 100 → 85
+  if (weeklyHardSets < mrv) {
+    const progress = (weeklyHardSets - mavHigh) / (mrv - mavHigh);
+    return 100 - progress * 15;
+  }
+  
+  // Above MRV: penalize toward 60 (overreach risk)
+  const overreach = (weeklyHardSets - mrv) / mrv;
+  return Math.max(60, 85 - overreach * 25);
+}
+
+/**
+ * Calculate combined muscle group score (strength + volume)
+ */
+export function calculateMuscleScore(
+  strengthScore: number,
+  volumeScore: number
+): number {
+  const strengthWeight = scoringConfig.scoring.strengthWeight;
+  const volumeWeight = scoringConfig.scoring.volumeWeight;
+  
+  return strengthScore * strengthWeight + volumeScore * volumeWeight;
+}
+
+/**
+ * Apply evidence gating - cap score based on training history
+ */
+export function applyEvidenceGating(
+  score: number,
+  sessionsInWindow: number,
+  windowDays: number
+): number {
+  const gating = scoringConfig.evidenceGating;
+  
+  // Check if user qualifies for no cap
+  if (windowDays >= gating.noCap.requirements.windowDays &&
+      sessionsInWindow >= gating.noCap.requirements.minSessions) {
+    return score;
+  }
+  
+  // Check diamond cap
+  if (windowDays >= gating.diamondCap.requirements.windowDays &&
+      sessionsInWindow >= gating.diamondCap.requirements.minSessions) {
+    return Math.min(score, gating.diamondCap.maxScore);
+  }
+  
+  // Check gold cap
+  if (windowDays >= gating.goldCap.requirements.windowDays &&
+      sessionsInWindow >= gating.goldCap.requirements.minSessions) {
+    return Math.min(score, gating.goldCap.maxScore);
+  }
+  
+  // Default to silver cap
+  return Math.min(score, gating.silverCap.maxScore);
+}
+
+/**
+ * Check if a set qualifies as a "strength test" for scoring purposes
+ */
+export function isQualifyingStrengthSet(
+  reps: number,
+  rpe?: number | null,
+  rir?: number | null
+): boolean {
+  const conf = scoringConfig.confidenceGating;
+  
+  // Must be low reps
+  if (reps > conf.maxReps) return false;
+  
+  // If RPE is provided, check it
+  if (rpe !== undefined && rpe !== null && rpe >= conf.minRPE) return true;
+  
+  // If RIR is provided, check it
+  if (rir !== undefined && rir !== null && rir <= conf.maxRIR) return true;
+  
+  // If neither RPE nor RIR provided, assume it qualifies if reps <= 10
+  // (user might not track RPE/RIR)
+  if (rpe === undefined && rir === undefined) return true;
+  if (rpe === null && rir === null) return true;
+  
+  return false;
+}
+
+/**
+ * Calculate volume-weighted muscle group score (legacy - for backwards compatibility)
  */
 export function muscleGroupScore(exerciseScores: number[], volumeWeights: number[]): number {
   if (exerciseScores.length === 0 || volumeWeights.length === 0) return 0;

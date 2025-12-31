@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { calculateStrengthScore, determineRank, calculateRecoveryState, RankTier } from '@/lib/scoring';
+import { 
+  calculateStrengthScore, 
+  determineRank, 
+  calculateRecoveryState, 
+  RankTier,
+  applyRecencyDecay,
+  calculateVolumeScore,
+  calculateMuscleScore,
+  applyEvidenceGating,
+  isQualifyingStrengthSet,
+  getVolumeLandmarks
+} from '@/lib/scoring';
 import scoringConfig from '@/../config/scoring.json';
 
 // GET - Fetch user's dashboard stats
@@ -55,6 +66,30 @@ export async function GET(request: NextRequest) {
     const muscleScores: Record<string, number> = {};
     const muscleRecovery: Record<string, number> = {};
 
+    // Get sessions in the last 56 days for evidence gating
+    const fiftyySixDaysAgo = new Date();
+    fiftyySixDaysAgo.setDate(fiftyySixDaysAgo.getDate() - 56);
+    
+    const twentyEightDaysAgo = new Date();
+    twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - 28);
+    
+    const sessionsLast56Days = await db.session.count({
+      where: {
+        userId: user.id,
+        startTime: { gte: fiftyySixDaysAgo },
+      },
+    });
+    
+    const sessionsLast28Days = await db.session.count({
+      where: {
+        userId: user.id,
+        startTime: { gte: twentyEightDaysAgo },
+      },
+    });
+
+    // Get training age for volume landmarks
+    const trainingAgeYears = user.profile?.trainingAgeYears ?? 1;
+
     for (const mg of muscleGroups) {
       // Get all exercises that contribute to this muscle group (primary or secondary)
       // We use a minimum threshold of 10% to filter out negligible contributions
@@ -91,13 +126,17 @@ export async function GET(request: NextRequest) {
 
         if (bestPR && user.profile && user.profile.bodyWeight && user.profile.birthDate && user.profile.sex) {
           // Calculate normalized strength score
-          const score = calculateStrengthScore(
+          let score = calculateStrengthScore(
             bestPR.estimated1RM,
             user.profile.bodyWeight,
             user.profile.sex,
             calculateAge(user.profile.birthDate),
             exercise.strengthStandard || 1.0
           );
+          
+          // Apply recency decay based on days since PR
+          const daysSincePR = Math.floor((Date.now() - bestPR.date.getTime()) / (1000 * 60 * 60 * 24));
+          score = applyRecencyDecay(score, daysSincePR);
           
           // Weight the score by the exercise's contribution percentage to this muscle
           // e.g., Squat contributes 30% to glutes, so its score is weighted at 0.3
@@ -117,19 +156,24 @@ export async function GET(request: NextRequest) {
       // Calculate weighted average, then apply a scaling factor based on max contribution
       // This ensures secondary-only training (low contribution %) can't give high scores
       // Scale factor: reaches 1.0 only when you've trained an exercise with 60%+ contribution
-      // Formula: scaleFactor = min(1.0, maxContribution / 60)
-      // Examples:
-      //   - 15% contribution (bench for shoulders) → 0.25 scale
-      //   - 25% contribution (row for biceps) → 0.42 scale
-      //   - 30% contribution (squat for glutes) → 0.50 scale
-      //   - 50% contribution (primary) → 0.83 scale
-      //   - 60%+ contribution → 1.0 scale (full score)
       const scaleFactor = Math.min(1.0, maxContribution / 60);
       
-      const rawScore = totalWeight > 0 ? weightedScoreSum / totalWeight : 0;
-      muscleScores[mg.name.toLowerCase()] = totalWeight > 0 
-        ? Math.min(100, Math.round(rawScore * scaleFactor)) 
-        : 0;
+      const rawStrengthScore = totalWeight > 0 ? (weightedScoreSum / totalWeight) * scaleFactor : 0;
+      
+      // Calculate weekly volume for this muscle group (hard sets only)
+      const weeklyHardSets = await calculateWeeklyHardSetsForMuscle(user.id, mg.id);
+      const volumeScore = calculateVolumeScore(weeklyHardSets, trainingAgeYears);
+      
+      // Combine strength (75%) and volume (25%) scores
+      let combinedScore = calculateMuscleScore(rawStrengthScore, volumeScore);
+      
+      // Apply evidence gating - cap score based on training history
+      // Use the window that gives the user the most benefit
+      const effectiveSessions = Math.max(sessionsLast28Days, sessionsLast56Days);
+      const effectiveWindow = sessionsLast56Days >= sessionsLast28Days ? 56 : 28;
+      combinedScore = applyEvidenceGating(combinedScore, effectiveSessions, effectiveWindow);
+      
+      muscleScores[mg.name.toLowerCase()] = Math.min(100, Math.round(combinedScore));
 
       // Calculate recovery state
       const lastWorkoutWithMuscle = await db.session.findFirst({
@@ -324,4 +368,64 @@ async function calculateCurrentStreak(userId: string): Promise<number> {
   }
 
   return streak;
+}
+
+/**
+ * Calculate weekly hard sets for a specific muscle group
+ * Only counts sets that qualify as "hard" (RPE >= 7 or not warmup)
+ */
+async function calculateWeeklyHardSetsForMuscle(userId: string, muscleGroupId: string): Promise<number> {
+  const weekStart = new Date();
+  weekStart.setDate(weekStart.getDate() - 7);
+
+  // Get all sessions from the past week with exercises that target this muscle group
+  const sessions = await db.session.findMany({
+    where: {
+      userId,
+      startTime: { gte: weekStart },
+    },
+    include: {
+      exercises: {
+        include: {
+          exercise: {
+            include: {
+              muscleContributions: {
+                where: {
+                  muscleGroupId: muscleGroupId,
+                },
+              },
+            },
+          },
+          sets: true,
+        },
+      },
+    },
+  });
+
+  let hardSets = 0;
+
+  for (const session of sessions) {
+    for (const exerciseLog of session.exercises) {
+      // Check if this exercise contributes to the muscle group
+      const contribution = exerciseLog.exercise.muscleContributions[0];
+      if (!contribution || contribution.contributionPercentage < 10) continue;
+
+      // Weight the sets by contribution percentage
+      const contributionWeight = contribution.contributionPercentage / 100;
+
+      for (const set of exerciseLog.sets) {
+        // Skip warmup sets
+        if (set.isWarmup) continue;
+        
+        // Count as hard set if RPE >= 7 or if no RPE specified (assume it's a working set)
+        const isHardSet = !set.rpe || set.rpe >= 7;
+        if (isHardSet) {
+          // Weight the set by how much this exercise contributes to the muscle
+          hardSets += contributionWeight;
+        }
+      }
+    }
+  }
+
+  return Math.round(hardSets);
 }
