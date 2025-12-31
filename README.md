@@ -3,6 +3,9 @@ A self-hostable, open-source web app that gamifies strength and hypertrophy trai
 
 This is built to feel like a ranked mode in games (Bronze → Unreal), but for the gym.
 
+<img width="1113" height="1074" alt="image" src="https://github.com/user-attachments/assets/6eab5df9-80fc-4008-a8f7-e8e5c3750b11" />
+
+
 ## Disclaimer
 This app is for educational and motivational purposes only. It is not medical advice. If you have injuries or medical conditions, consult a qualified professional.
 
