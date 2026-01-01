@@ -54,8 +54,15 @@ interface ProfileData {
   preferences: {
     weeklyGoal: number;
     restTimerDefault: number;
-    notifications: boolean;
     darkMode: boolean;
+  };
+  notifications: {
+    workoutReminders: boolean;
+    prCelebrations: boolean;
+    streakAlerts: boolean;
+    rankUpdates: boolean;
+    recoveryAlerts: boolean;
+    weeklySummary: boolean;
   };
 }
 
@@ -76,8 +83,15 @@ const defaultFormData: ProfileData = {
   preferences: {
     weeklyGoal: 4,
     restTimerDefault: 120,
-    notifications: true,
     darkMode: true,
+  },
+  notifications: {
+    workoutReminders: true,
+    prCelebrations: true,
+    streakAlerts: true,
+    rankUpdates: true,
+    recoveryAlerts: false,
+    weeklySummary: true,
   },
 };
 
@@ -114,7 +128,7 @@ export default function ProfilePage() {
           name: statsData.user?.name || '',
           email: statsData.user?.email || '',
           avatar: statsData.user?.image || null,
-          rank: statsData.rank || 'unranked',
+          rank: statsData.rank?.overall || 'bronze',
           memberSince: statsData.user?.createdAt
             ? new Date(statsData.user.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
             : '',
@@ -131,8 +145,15 @@ export default function ProfilePage() {
           preferences: {
             weeklyGoal: 4,
             restTimerDefault: 120,
-            notifications: true,
             darkMode: true,
+          },
+          notifications: {
+            workoutReminders: true,
+            prCelebrations: true,
+            streakAlerts: true,
+            rankUpdates: true,
+            recoveryAlerts: false,
+            weeklySummary: true,
           },
         });
       } catch (err) {
@@ -694,40 +715,40 @@ export default function ProfilePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {[
+                {([
                   {
+                    key: 'workoutReminders' as const,
                     title: 'Workout Reminders',
                     description: 'Get reminded to work out based on your schedule',
-                    enabled: true,
                   },
                   {
+                    key: 'prCelebrations' as const,
                     title: 'PR Celebrations',
                     description: 'Celebrate when you hit new personal records',
-                    enabled: true,
                   },
                   {
+                    key: 'streakAlerts' as const,
                     title: 'Streak Alerts',
                     description: 'Get notified when your streak is at risk',
-                    enabled: true,
                   },
                   {
+                    key: 'rankUpdates' as const,
                     title: 'Rank Updates',
                     description: 'Know when you rank up or down',
-                    enabled: true,
                   },
                   {
+                    key: 'recoveryAlerts' as const,
                     title: 'Recovery Alerts',
                     description: 'Get notified when muscle groups are recovered',
-                    enabled: false,
                   },
                   {
+                    key: 'weeklySummary' as const,
                     title: 'Weekly Summary',
                     description: 'Receive a weekly summary of your progress',
-                    enabled: true,
                   },
-                ].map((notification, index) => (
+                ]).map((notification) => (
                   <div
-                    key={index}
+                    key={notification.key}
                     className="flex items-center justify-between py-2"
                   >
                     <div>
@@ -737,13 +758,22 @@ export default function ProfilePage() {
                       </p>
                     </div>
                     <button
+                      onClick={() =>
+                        setFormData({
+                          ...formData,
+                          notifications: {
+                            ...(formData.notifications ?? defaultFormData.notifications),
+                            [notification.key]: !(formData.notifications?.[notification.key] ?? false),
+                          },
+                        })
+                      }
                       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-                        notification.enabled ? 'bg-primary' : 'bg-input'
+                        (formData.notifications?.[notification.key] ?? false) ? 'bg-primary' : 'bg-input'
                       }`}
                     >
                       <span
                         className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                          notification.enabled
+                          (formData.notifications?.[notification.key] ?? false)
                             ? 'translate-x-5'
                             : 'translate-x-0.5'
                         }`}

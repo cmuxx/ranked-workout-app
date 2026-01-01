@@ -427,13 +427,13 @@ export function AnatomyVisualization({
   };
 
   return (
-    <div className={cn('flex gap-6 sm:gap-10 justify-center items-start', className)}>
+    <div className={cn('flex gap-6 sm:gap-10 justify-center items-start py-4', className)}>
       {/* Front view */}
       <div className="flex flex-col items-center">
         <span className="text-xs text-muted-foreground mb-2 font-medium">Front</span>
         <svg 
           viewBox="0 0 100 280" 
-          className="w-32 h-80 sm:w-44 sm:h-[22rem] drop-shadow-[0_0_18px_rgba(0,0,0,0.45)]"
+          className="w-28 sm:w-36 aspect-[100/280] drop-shadow-[0_0_18px_rgba(0,0,0,0.45)]"
           role="img"
           aria-label="Front muscle map"
         >
@@ -493,7 +493,7 @@ export function AnatomyVisualization({
         <span className="text-xs text-muted-foreground mb-2 font-medium">Back</span>
         <svg 
           viewBox="0 0 100 290" 
-          className="w-32 h-80 sm:w-44 sm:h-[22rem] drop-shadow-[0_0_18px_rgba(0,0,0,0.45)]"
+          className="w-28 sm:w-36 aspect-[100/290] drop-shadow-[0_0_18px_rgba(0,0,0,0.45)]"
           role="img"
           aria-label="Back muscle map"
         >
