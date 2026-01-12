@@ -125,7 +125,7 @@ export default function DashboardLayout({
             <Separator className="my-3" />
             <div className="space-y-1">
               <Link
-                href="/dashboard/settings"
+                href="/dashboard/profile?tab=settings"
                 className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               >
                 <Settings className="h-4 w-4" />

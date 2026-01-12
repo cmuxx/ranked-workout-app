@@ -20,12 +20,12 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     
-    if (!session?.user?.email) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const user = await db.user.findUnique({
-      where: { email: session.user.email },
+      where: { id: session.user.id },
       include: {
         profile: true,
       },

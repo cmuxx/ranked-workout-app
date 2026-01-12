@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   User,
   Settings,
@@ -96,12 +97,25 @@ const defaultFormData: ProfileData = {
 };
 
 export default function ProfilePage() {
-  const [activeTab, setActiveTab] = useState<'profile' | 'settings' | 'notifications'>('profile');
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const initialTab = (tabParam === 'settings' || tabParam === 'notifications') ? tabParam : 'profile';
+  const [activeTab, setActiveTab] = useState<'profile' | 'settings' | 'notifications'>(initialTab);
   const [formData, setFormData] = useState<ProfileData>(defaultFormData);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Update active tab when URL parameter changes
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'settings' || tabParam === 'notifications') {
+      setActiveTab(tabParam);
+    } else if (tabParam === null) {
+      setActiveTab('profile');
+    }
+  }, [searchParams]);
 
   // Fetch profile data on mount
   useEffect(() => {
