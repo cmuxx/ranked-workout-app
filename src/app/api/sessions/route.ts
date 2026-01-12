@@ -1,7 +1,151 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { estimate1RM } from '@/lib/scoring';
+import {
+  estimate1RM,
+  calculateStrengthScore,
+  applyRecencyDecay,
+  calculateVolumeScore,
+  calculateMuscleScore,
+  applyEvidenceGating,
+  getRankTier,
+  RankTier
+} from '@/lib/scoring';
+
+// Helper to calculate age from birthdate
+function calculateAge(birthDate: Date): number {
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+}
+
+// Helper to calculate muscle scores for a user
+async function calculateMuscleScores(userId: string): Promise<Record<string, { score: number; rank: RankTier }>> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    include: { profile: true },
+  });
+
+  if (!user || !user.profile) {
+    return {};
+  }
+
+  const muscleGroups = await db.muscleGroup.findMany();
+  const muscleScores: Record<string, { score: number; rank: RankTier }> = {};
+
+  // Get session counts for evidence gating
+  const fiftyySixDaysAgo = new Date();
+  fiftyySixDaysAgo.setDate(fiftyySixDaysAgo.getDate() - 56);
+  const twentyEightDaysAgo = new Date();
+  twentyEightDaysAgo.setDate(twentyEightDaysAgo.getDate() - 28);
+
+  const sessionsLast56Days = await db.session.count({
+    where: { userId, startTime: { gte: fiftyySixDaysAgo } },
+  });
+  const sessionsLast28Days = await db.session.count({
+    where: { userId, startTime: { gte: twentyEightDaysAgo } },
+  });
+
+  const trainingAgeYears = user.profile.trainingAgeYears ?? 1;
+
+  for (const mg of muscleGroups) {
+    const exercisesForMuscle = await db.exercise.findMany({
+      where: {
+        muscleContributions: {
+          some: { muscleGroupId: mg.id, contributionPercentage: { gte: 10 } },
+        },
+      },
+      include: {
+        muscleContributions: { where: { muscleGroupId: mg.id } },
+      },
+    });
+
+    let weightedScoreSum = 0;
+    let totalWeight = 0;
+    let maxContribution = 0;
+
+    for (const exercise of exercisesForMuscle) {
+      const bestPR = await db.pRRecord.findFirst({
+        where: { userId, exerciseId: exercise.id },
+        orderBy: { estimated1RM: 'desc' },
+      });
+
+      if (bestPR && user.profile.bodyWeight && user.profile.birthDate && user.profile.sex) {
+        let score = calculateStrengthScore(
+          bestPR.estimated1RM,
+          user.profile.bodyWeight,
+          user.profile.sex,
+          calculateAge(user.profile.birthDate),
+          exercise.strengthStandard || 1.0
+        );
+
+        const daysSincePR = Math.floor((Date.now() - bestPR.date.getTime()) / (1000 * 60 * 60 * 24));
+        score = applyRecencyDecay(score, daysSincePR);
+
+        const contribution = exercise.muscleContributions[0]?.contributionPercentage ?? 50;
+        const weight = contribution / 100;
+
+        if (contribution > maxContribution) {
+          maxContribution = contribution;
+        }
+
+        weightedScoreSum += score * weight;
+        totalWeight += weight;
+      }
+    }
+
+    const scaleFactor = Math.min(1.0, maxContribution / 60);
+    const rawStrengthScore = totalWeight > 0 ? (weightedScoreSum / totalWeight) * scaleFactor : 0;
+
+    // Calculate weekly volume (simplified)
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 7);
+    const weekSessions = await db.session.findMany({
+      where: { userId, startTime: { gte: weekStart } },
+      include: {
+        exercises: {
+          include: {
+            exercise: { include: { muscleContributions: { where: { muscleGroupId: mg.id } } } },
+            sets: true,
+          },
+        },
+      },
+    });
+
+    let hardSets = 0;
+    for (const s of weekSessions) {
+      for (const el of s.exercises) {
+        const contrib = el.exercise.muscleContributions[0];
+        if (!contrib || contrib.contributionPercentage < 10) continue;
+        const contribWeight = contrib.contributionPercentage / 100;
+        for (const set of el.sets) {
+          if (!set.isWarmup && (!set.rpe || set.rpe >= 7)) {
+            hardSets += contribWeight;
+          }
+        }
+      }
+    }
+
+    const volumeScore = calculateVolumeScore(Math.round(hardSets), trainingAgeYears);
+    let combinedScore = calculateMuscleScore(rawStrengthScore, volumeScore);
+
+    const effectiveSessions = Math.max(sessionsLast28Days, sessionsLast56Days);
+    const effectiveWindow = sessionsLast56Days >= sessionsLast28Days ? 56 : 28;
+    combinedScore = applyEvidenceGating(combinedScore, effectiveSessions, effectiveWindow);
+
+    const finalScore = Math.min(100, Math.round(combinedScore));
+    muscleScores[mg.name] = {
+      score: finalScore,
+      rank: getRankTier(finalScore),
+    };
+  }
+
+  return muscleScores;
+}
 
 // GET - Fetch user's workout sessions
 export async function GET(request: NextRequest) {
@@ -123,6 +267,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Calculate muscle scores BEFORE the workout
+    const scoresBefore = await calculateMuscleScores(user.id);
 
     // Create the session with nested exercises and sets
     const newSession = await db.session.create({
@@ -291,44 +438,54 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Calculate muscle group impact summary for the modal
-    const muscleImpactSummary: Record<string, { volume: number; sets: number }> = {};
+    // Calculate muscle scores AFTER the workout (with new PRs)
+    const scoresAfter = await calculateMuscleScores(user.id);
 
-    for (const [muscleId, data] of Object.entries(muscleGroupUpdates)) {
-      // Get muscle group name
-      const muscleGroup = await db.muscleGroup.findUnique({
-        where: { id: muscleId },
-      });
-      if (muscleGroup) {
-        muscleImpactSummary[muscleGroup.name] = {
-          volume: Math.round(data.volume),
-          sets: 0, // Will be calculated below
-        };
-      }
-    }
+    // Calculate score changes for the modal
+    const muscleScoreChanges: Record<string, {
+      before: number;
+      after: number;
+      change: number;
+      rankBefore: RankTier;
+      rankAfter: RankTier;
+      rankUp: boolean;
+    }> = {};
 
-    // Count sets per muscle group
+    // Get all muscle groups that were trained in this workout
+    const trainedMuscles = new Set<string>();
     for (const exerciseLog of newSession.exercises) {
       const contributions = await db.muscleContribution.findMany({
         where: { exerciseId: exerciseLog.exerciseId },
         include: { muscleGroup: true },
       });
-
-      const workingSets = exerciseLog.sets.filter((s: { isWarmup: boolean }) => !s.isWarmup).length;
-
       for (const contrib of contributions) {
-        const muscleName = contrib.muscleGroup.name;
-        if (muscleImpactSummary[muscleName]) {
-          muscleImpactSummary[muscleName].sets += Math.round(workingSets * contrib.contributionPercentage / 100);
+        if (contrib.contributionPercentage >= 10) {
+          trainedMuscles.add(contrib.muscleGroup.name);
         }
       }
+    }
+
+    // Calculate changes for trained muscles
+    for (const muscleName of trainedMuscles) {
+      const before = scoresBefore[muscleName] || { score: 0, rank: 'bronze' as RankTier };
+      const after = scoresAfter[muscleName] || { score: 0, rank: 'bronze' as RankTier };
+      const change = after.score - before.score;
+
+      muscleScoreChanges[muscleName] = {
+        before: before.score,
+        after: after.score,
+        change,
+        rankBefore: before.rank,
+        rankAfter: after.rank,
+        rankUp: after.rank !== before.rank && after.score > before.score,
+      };
     }
 
     return NextResponse.json({
       session: newSession,
       newPRs,
       streak: newStreak,
-      muscleImpact: muscleImpactSummary,
+      muscleScoreChanges,
     });
   } catch (error) {
     console.error('Error creating session:', error);

@@ -148,7 +148,14 @@ export default function NewWorkoutPage() {
   // Post-workout modal state
   const [showPostWorkoutModal, setShowPostWorkoutModal] = useState(false);
   const [workoutSummary, setWorkoutSummary] = useState<{
-    muscleImpact: Record<string, { volume: number; sets: number }>;
+    muscleScoreChanges: Record<string, {
+      before: number;
+      after: number;
+      change: number;
+      rankBefore: string;
+      rankAfter: string;
+      rankUp: boolean;
+    }>;
     newPRs: Array<{ exercise: string; estimated1RM: number }>;
     streak: number;
   } | null>(null);
@@ -480,20 +487,20 @@ export default function NewWorkoutPage() {
       const data = await res.json();
 
       // Show post-workout modal with progress
-      if (data.muscleImpact && Object.keys(data.muscleImpact).length > 0) {
+      if (data.muscleScoreChanges && Object.keys(data.muscleScoreChanges).length > 0) {
         setWorkoutSummary({
-          muscleImpact: data.muscleImpact,
+          muscleScoreChanges: data.muscleScoreChanges,
           newPRs: data.newPRs || [],
           streak: data.streak || 0,
         });
         setShowPostWorkoutModal(true);
 
-        // Animate the progress bars
+        // Animate the progress bars from before to after scores
         setTimeout(() => {
-          const maxVolume = Math.max(...Object.values(data.muscleImpact).map((m: { volume: number }) => m.volume));
           const animated: Record<string, number> = {};
-          Object.entries(data.muscleImpact).forEach(([muscle, impact]) => {
-            animated[muscle] = ((impact as { volume: number }).volume / maxVolume) * 100;
+          Object.entries(data.muscleScoreChanges).forEach(([muscle, scores]) => {
+            const s = scores as { after: number };
+            animated[muscle] = s.after;
           });
           setAnimatedBars(animated);
         }, 100);
@@ -1116,28 +1123,59 @@ export default function NewWorkoutPage() {
               </div>
             )}
 
-            {/* Muscle Impact with Animated Bars */}
-            {workoutSummary?.muscleImpact && Object.keys(workoutSummary.muscleImpact).length > 0 && (
+            {/* Muscle Score Changes with Animated Bars */}
+            {workoutSummary?.muscleScoreChanges && Object.keys(workoutSummary.muscleScoreChanges).length > 0 && (
               <div className="space-y-3">
-                <h4 className="font-medium text-sm text-muted-foreground">Muscles Trained</h4>
-                {Object.entries(workoutSummary.muscleImpact)
-                  .sort(([, a], [, b]) => b.volume - a.volume)
-                  .map(([muscle, impact]) => (
-                    <div key={muscle} className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span className="capitalize font-medium">{muscle}</span>
-                        <span className="text-muted-foreground">
-                          {impact.sets} sets • {(impact.volume / 1000).toFixed(1)}k lb
-                        </span>
+                <h4 className="font-medium text-sm text-muted-foreground">Score Changes</h4>
+                {Object.entries(workoutSummary.muscleScoreChanges)
+                  .sort(([, a], [, b]) => b.change - a.change)
+                  .map(([muscle, scores]) => {
+                    const rankColors: Record<string, string> = {
+                      bronze: 'from-amber-600 to-amber-500',
+                      silver: 'from-gray-400 to-gray-300',
+                      gold: 'from-yellow-500 to-yellow-400',
+                      diamond: 'from-cyan-400 to-cyan-300',
+                      apex: 'from-indigo-600 to-purple-500',
+                      mythic: 'from-red-600 to-orange-500',
+                    };
+                    const barColor = rankColors[scores.rankAfter] || rankColors.bronze;
+
+                    return (
+                      <div key={muscle} className="space-y-1">
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="capitalize font-medium">{muscle}</span>
+                          <div className="flex items-center gap-2">
+                            {scores.change > 0 ? (
+                              <span className="text-green-500 font-medium">+{scores.change} pts</span>
+                            ) : scores.change < 0 ? (
+                              <span className="text-red-500 font-medium">{scores.change} pts</span>
+                            ) : (
+                              <span className="text-muted-foreground">No change</span>
+                            )}
+                            <span className="text-xs text-muted-foreground">
+                              {scores.before} → {scores.after}
+                            </span>
+                            {scores.rankUp && (
+                              <span className="text-xs font-semibold text-yellow-500 animate-pulse">
+                                RANK UP!
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="h-3 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full bg-gradient-to-r ${barColor} rounded-full transition-all duration-1000 ease-out`}
+                            style={{ width: `${animatedBars[muscle] || scores.before}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>0</span>
+                          <span className="capitalize">{scores.rankAfter}</span>
+                          <span>100</span>
+                        </div>
                       </div>
-                      <div className="h-3 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all duration-1000 ease-out"
-                          style={{ width: `${animatedBars[muscle] || 0}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
               </div>
             )}
           </div>
