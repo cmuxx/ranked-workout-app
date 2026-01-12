@@ -89,7 +89,7 @@ export default function RegisterPage() {
               <Dumbbell className="h-8 w-8 text-primary" />
             </div>
             <span className="text-2xl font-bold bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">
-              RankedGym
+              Gymenace
             </span>
           </div>
           <p className="text-muted-foreground text-center">

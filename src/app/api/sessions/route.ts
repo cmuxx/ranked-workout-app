@@ -29,7 +29,15 @@ export async function GET(request: NextRequest) {
       include: {
         exercises: {
           include: {
-            exercise: true,
+            exercise: {
+              include: {
+                muscleContributions: {
+                  include: {
+                    muscleGroup: true,
+                  },
+                },
+              },
+            },
             sets: true,
           },
         },
@@ -39,14 +47,39 @@ export async function GET(request: NextRequest) {
       skip: offset,
     });
 
+    // Calculate muscle group impact for each session
+    const sessionsWithImpact = sessions.map(session => {
+      const muscleImpact: Record<string, number> = {};
+
+      for (const exerciseLog of session.exercises) {
+        const workingSets = exerciseLog.sets.filter(s => !s.isWarmup);
+        if (workingSets.length === 0) continue;
+
+        // Calculate total volume for this exercise
+        const exerciseVolume = workingSets.reduce((sum, set) => sum + set.weight * set.reps, 0);
+
+        // Distribute impact across muscle groups based on contribution percentage
+        for (const contrib of exerciseLog.exercise.muscleContributions) {
+          const muscleGroupName = contrib.muscleGroup.name;
+          const impact = Math.round((exerciseVolume * contrib.contributionPercentage) / 100);
+          muscleImpact[muscleGroupName] = (muscleImpact[muscleGroupName] || 0) + impact;
+        }
+      }
+
+      return {
+        ...session,
+        muscleImpact,
+      };
+    });
+
     const total = await db.session.count({
       where: { userId: user.id },
     });
 
     return NextResponse.json({
-      sessions,
+      sessions: sessionsWithImpact,
       total,
-      hasMore: offset + sessions.length < total,
+      hasMore: offset + sessionsWithImpact.length < total,
     });
   } catch (error) {
     console.error('Error fetching sessions:', error);
@@ -78,6 +111,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, type, exercises, startTime, endTime, notes } = body;
 
+    // Calculate duration in minutes
+    const sessionStart = startTime ? new Date(startTime) : new Date();
+    const sessionEnd = endTime ? new Date(endTime) : new Date();
+    const durationMin = Math.round((sessionEnd.getTime() - sessionStart.getTime()) / 60000);
+
     // Validate required fields
     if (!exercises || !Array.isArray(exercises) || exercises.length === 0) {
       return NextResponse.json(
@@ -90,8 +128,9 @@ export async function POST(request: NextRequest) {
     const newSession = await db.session.create({
       data: {
         userId: user.id,
-        startTime: startTime ? new Date(startTime) : new Date(),
-        endTime: endTime ? new Date(endTime) : new Date(),
+        startTime: sessionStart,
+        endTime: sessionEnd,
+        durationMin: durationMin > 0 ? durationMin : null,
         workoutType: type || 'custom',
         notes: notes || null,
         exercises: {
@@ -252,10 +291,44 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Calculate muscle group impact summary for the modal
+    const muscleImpactSummary: Record<string, { volume: number; sets: number }> = {};
+
+    for (const [muscleId, data] of Object.entries(muscleGroupUpdates)) {
+      // Get muscle group name
+      const muscleGroup = await db.muscleGroup.findUnique({
+        where: { id: muscleId },
+      });
+      if (muscleGroup) {
+        muscleImpactSummary[muscleGroup.name] = {
+          volume: Math.round(data.volume),
+          sets: 0, // Will be calculated below
+        };
+      }
+    }
+
+    // Count sets per muscle group
+    for (const exerciseLog of newSession.exercises) {
+      const contributions = await db.muscleContribution.findMany({
+        where: { exerciseId: exerciseLog.exerciseId },
+        include: { muscleGroup: true },
+      });
+
+      const workingSets = exerciseLog.sets.filter((s: { isWarmup: boolean }) => !s.isWarmup).length;
+
+      for (const contrib of contributions) {
+        const muscleName = contrib.muscleGroup.name;
+        if (muscleImpactSummary[muscleName]) {
+          muscleImpactSummary[muscleName].sets += Math.round(workingSets * contrib.contributionPercentage / 100);
+        }
+      }
+    }
+
     return NextResponse.json({
       session: newSession,
       newPRs,
       streak: newStreak,
+      muscleImpact: muscleImpactSummary,
     });
   } catch (error) {
     console.error('Error creating session:', error);

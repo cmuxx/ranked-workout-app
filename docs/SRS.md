@@ -1,5 +1,5 @@
 # Software Requirements Specification (SRS)
-## Project: Ranked Gym Progress (Web App)
+## Project: Gymenace (Web App)
 
 Version: 0.1  
 Status: Draft  

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RankedGym - Gamified Workout Tracking",
+  title: "Gymenace - Gamified Workout Tracking",
   description: "Track your workouts, earn ranks, and level up your fitness journey",
 };
 

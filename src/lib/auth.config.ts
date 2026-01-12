@@ -20,15 +20,28 @@ export const authConfig: NextAuthConfig = {
 
       // Public routes that don't require authentication
       const publicRoutes = ['/', '/login', '/register'];
-      const isPublicRoute = publicRoutes.includes(pathname);
+      const isPublicRoute = publicRoutes.some(route =>
+        pathname === route || pathname.startsWith(route + '/')
+      );
 
       // Auth API routes should always be accessible
       if (pathname.startsWith('/api/auth')) {
         return true;
       }
 
-      // Redirect unauthenticated users to login
-      if (!isLoggedIn && !isPublicRoute) {
+      // API routes need authentication (except auth routes handled above)
+      if (pathname.startsWith('/api/')) {
+        return isLoggedIn;
+      }
+
+      // Protected routes - require authentication
+      const protectedRoutes = ['/dashboard', '/onboarding'];
+      const isProtectedRoute = protectedRoutes.some(route =>
+        pathname === route || pathname.startsWith(route + '/')
+      );
+
+      // Redirect unauthenticated users from protected routes to login
+      if (!isLoggedIn && isProtectedRoute) {
         return false;
       }
 

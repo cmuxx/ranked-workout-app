@@ -21,13 +21,16 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { RankBadge, RankProgress } from '@/components/rank-badge';
-import {
-  AnatomyVisualization,
-  RecoveryIndicator,
-  MuscleGroupData,
-} from '@/components/anatomy-visualization';
+import { RankBadge, RankProgress, MuscleGroupBreakdown } from '@/components/rank-badge';
+import { RecoveryIndicator } from '@/components/anatomy-visualization';
 import { RankTier, getRankTier } from '@/lib/scoring';
+
+interface MuscleGroupData {
+  name: string;
+  rank: RankTier;
+  score: number;
+  recoveryStatus: 'need_recovery' | 'recovering' | 'ready';
+}
 
 interface DashboardStats {
   user: {
@@ -105,7 +108,7 @@ export default function DashboardPage() {
     fetchStats();
   }, []);
 
-  // Build muscle group data from API response
+  // Build muscle group data from API response for recovery status display
   const muscleGroups: MuscleGroupData[] = stats
     ? Object.entries(stats.muscleScores).map(([name, score]) => ({
         name,
@@ -246,14 +249,14 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Muscle Group Visualization */}
+          {/* Muscle Group Breakdown */}
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-lg">Muscle Group Ranks</CardTitle>
+                  <CardTitle className="text-lg">Muscle Group Breakdown</CardTitle>
                   <CardDescription>
-                    Tap a muscle group for details
+                    Your strength scores by muscle group
                   </CardDescription>
                 </div>
                 <Link href="/dashboard/progress">
@@ -265,9 +268,16 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <AnatomyVisualization
-                muscleGroups={muscleGroups}
-                onMuscleClick={setSelectedMuscle}
+              <MuscleGroupBreakdown
+                muscleScores={stats.muscleScores}
+                onMuscleClick={(muscle, score, rank) => {
+                  setSelectedMuscle({
+                    name: muscle,
+                    score,
+                    rank,
+                    recoveryStatus: getRecoveryStatus(stats.muscleRecovery[muscle] ?? 1),
+                  });
+                }}
               />
 
               {/* Selected muscle details */}
@@ -282,13 +292,9 @@ export default function DashboardPage() {
                     </div>
                     <RecoveryIndicator status={selectedMuscle.recoveryStatus} />
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Score</span>
-                      <span className="font-medium">{selectedMuscle.score}/100</span>
-                    </div>
-                    <Progress value={selectedMuscle.score} className="h-2" />
-                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Recovery status and detailed stats for this muscle group.
+                  </p>
                 </div>
               )}
             </CardContent>

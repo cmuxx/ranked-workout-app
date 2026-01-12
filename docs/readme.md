@@ -1,4 +1,4 @@
-# Ranked Gym Progress
+# Gymenace
 A self-hostable, open-source web app that gamifies strength and hypertrophy training using ranked muscle-group progression, recovery readiness, streaks, PR tracking, and insights.
 
 This is built to feel like a ranked mode in games (Bronze → Unreal), but for the gym.

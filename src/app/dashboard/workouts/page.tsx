@@ -37,6 +37,7 @@ interface Workout {
   }>;
   volume: number;
   prs: string[];
+  muscleImpact: Record<string, number>;
 }
 
 const typeColors: Record<string, string> = {
@@ -69,14 +70,20 @@ export default function WorkoutsPage() {
           endTime: string | null;
           name: string | null;
           workoutType: string | null;
+          durationMin: number | null;
+          muscleImpact: Record<string, number>;
           exercises: Array<{
             exercise: { name: string };
             sets: Array<{ weight: number; reps: number; isWarmup: boolean }>;
           }>;
         }) => {
-          const startTime = new Date(session.startTime);
-          const endTime = session.endTime ? new Date(session.endTime) : new Date();
-          const duration = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
+          // Use durationMin if available, otherwise calculate from start/end times
+          let duration = session.durationMin || 0;
+          if (!duration && session.startTime && session.endTime) {
+            const startTime = new Date(session.startTime);
+            const endTime = new Date(session.endTime);
+            duration = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
+          }
           
           let totalVolume = 0;
           const exerciseData = session.exercises.map((ex) => {
@@ -105,6 +112,7 @@ export default function WorkoutsPage() {
             exercises: exerciseData,
             volume: totalVolume,
             prs: [], // We'd need to track PRs per session
+            muscleImpact: session.muscleImpact || {},
           };
         });
 
@@ -198,16 +206,16 @@ export default function WorkoutsPage() {
       {!isLoading && !error && (
         <>
           {/* Stats Summary */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4">
             <Card>
-              <CardContent className="pt-6 text-center">
-                <p className="text-3xl font-bold">{workouts.length}</p>
+              <CardContent className="p-3 sm:pt-6 text-center">
+                <p className="text-xl sm:text-3xl font-bold">{workouts.length}</p>
                 <p className="text-xs text-muted-foreground">Total Workouts</p>
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="pt-6 text-center">
-                <p className="text-3xl font-bold">
+              <CardContent className="p-3 sm:pt-6 text-center">
+                <p className="text-xl sm:text-3xl font-bold">
                   {workouts.length > 0
                     ? Math.round(workouts.reduce((acc, w) => acc + w.duration, 0) / 60)
                     : 0}h
@@ -216,8 +224,8 @@ export default function WorkoutsPage() {
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="pt-6 text-center">
-                <p className="text-3xl font-bold">
+              <CardContent className="p-3 sm:pt-6 text-center">
+                <p className="text-xl sm:text-3xl font-bold">
                   {workouts.length > 0
                     ? (workouts.reduce((acc, w) => acc + w.volume, 0) / 1000).toFixed(1)
                     : 0}k
@@ -280,6 +288,22 @@ export default function WorkoutsPage() {
                             </span>
                           )}
                         </div>
+                        {/* Muscle Group Impact */}
+                        {Object.keys(workout.muscleImpact).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {Object.entries(workout.muscleImpact)
+                              .sort(([, a], [, b]) => b - a)
+                              .slice(0, 4)
+                              .map(([muscle, volume]) => (
+                                <span
+                                  key={muscle}
+                                  className="px-2 py-0.5 bg-green-500/10 text-green-600 dark:text-green-400 rounded text-xs font-medium"
+                                >
+                                  +{(volume / 1000).toFixed(1)}k {muscle}
+                                </span>
+                              ))}
+                          </div>
+                        )}
                       </div>
                       <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                     </div>

@@ -68,7 +68,7 @@ export default function DashboardLayout({
                 <Dumbbell className="h-5 w-5 text-primary" />
               </div>
               <span className="font-bold bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">
-                RankedGym
+                Gymenace
               </span>
             </Link>
             <Button
@@ -159,7 +159,7 @@ export default function DashboardLayout({
               <Dumbbell className="h-4 w-4 text-primary" />
             </div>
             <span className="font-bold bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">
-              RankedGym
+              Gymenace
             </span>
           </div>
         </header>

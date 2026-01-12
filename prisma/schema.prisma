@@ -119,11 +119,14 @@ model BodyweightEntry {
 
 model Exercise {
   id               String   @id @default(cuid())
-  name             String   @unique
+  name             String   // Exercise name (unique per user or global)
   category         String   @default("other") // "barbell" | "dumbbell" | "machine" | "cable" | "bodyweight" | "other"
   equipmentType    String   // "barbell" | "dumbbell" | "machine" | "cable" | "bodyweight"
   movementPattern  String?  // "push" | "pull" | "squat" | "hinge" | "carry" | "isolation"
   strengthStandard Float    @default(1.0) // Multiplier for strength standards (1.0 = average)
+
+  // User-created exercises have a createdByUserId, global exercises have null
+  createdByUserId  String?
 
   // Muscle group mappings with contribution percentages
   muscleContributions MuscleContribution[]
@@ -132,6 +135,10 @@ model Exercise {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  // Composite unique: name + createdByUserId (allows same name for different users)
+  @@unique([name, createdByUserId])
+  @@index([createdByUserId])
 }
 
 model MuscleGroup {

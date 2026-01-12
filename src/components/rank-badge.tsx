@@ -129,3 +129,104 @@ export function RankProgress({
     </div>
   );
 }
+
+// Muscle Group Breakdown with progress bars
+export interface MuscleGroupBreakdownProps {
+  muscleScores: Record<string, number>;
+  className?: string;
+  onMuscleClick?: (muscle: string, score: number, rank: RankTier) => void;
+}
+
+// Map of rank colors for progress bars (solid colors)
+const rankBarColors: Record<RankTier, string> = {
+  bronze: 'bg-amber-600',
+  silver: 'bg-gray-400',
+  gold: 'bg-yellow-500',
+  diamond: 'bg-cyan-400',
+  apex: 'bg-indigo-600',
+  mythic: 'bg-red-500',
+};
+
+function getRankFromScore(score: number): RankTier {
+  if (score >= 95) return 'mythic';
+  if (score >= 85) return 'apex';
+  if (score >= 70) return 'diamond';
+  if (score >= 50) return 'gold';
+  if (score >= 25) return 'silver';
+  return 'bronze';
+}
+
+// Display order for muscle groups (upper body first, then lower, then core)
+const muscleDisplayOrder = [
+  'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms',
+  'quads', 'hamstrings', 'glutes', 'calves',
+  'core'
+];
+
+export function MuscleGroupBreakdown({
+  muscleScores,
+  className,
+  onMuscleClick,
+}: MuscleGroupBreakdownProps) {
+  // Sort muscles by display order, putting unknown ones at the end
+  const sortedMuscles = Object.entries(muscleScores).sort(([a], [b]) => {
+    const indexA = muscleDisplayOrder.indexOf(a.toLowerCase());
+    const indexB = muscleDisplayOrder.indexOf(b.toLowerCase());
+    const orderA = indexA === -1 ? 999 : indexA;
+    const orderB = indexB === -1 ? 999 : indexB;
+    return orderA - orderB;
+  });
+
+  return (
+    <div className={cn('space-y-3', className)}>
+      {sortedMuscles.map(([muscle, score]) => {
+        const rank = getRankFromScore(score);
+        const config = rankConfig[rank];
+
+        return (
+          <button
+            key={muscle}
+            onClick={() => onMuscleClick?.(muscle, score, rank)}
+            className={cn(
+              'w-full text-left transition-colors rounded-lg p-2 -mx-2',
+              onMuscleClick && 'hover:bg-muted/50 cursor-pointer'
+            )}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium capitalize">{muscle}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  {Math.round(score)} / 100
+                </span>
+                <span
+                  className={cn(
+                    'text-xs font-semibold px-1.5 py-0.5 rounded',
+                    `bg-gradient-to-r ${config.gradient}`,
+                    'text-white'
+                  )}
+                >
+                  {config.label}
+                </span>
+              </div>
+            </div>
+            <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all duration-500',
+                  rankBarColors[rank],
+                  rank === 'mythic' && 'animate-pulse'
+                )}
+                style={{ width: `${Math.min(100, score)}%` }}
+              />
+            </div>
+          </button>
+        );
+      })}
+      {sortedMuscles.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-4">
+          Log your first workout to see muscle group scores
+        </p>
+      )}
+    </div>
+  );
+}

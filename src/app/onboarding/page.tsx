@@ -389,7 +389,7 @@ export default function OnboardingPage() {
             <Dumbbell className="h-6 w-6 text-primary" />
           </div>
           <span className="text-xl font-bold bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">
-            RankedGym
+            Gymenace
           </span>
         </div>
 

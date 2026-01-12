@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Ranked Gym Progress is a research-backed fitness app that gamifies strength training using ranked muscle-group progression (Bronze → Silver → Gold → Diamond → Apex → Mythic). The scoring system is evidence-based, using peer-reviewed sports science research for 1RM estimation, allometric scaling, volume landmarks, and detraining models.
+Gymenace is a research-backed fitness app that gamifies strength training using ranked muscle-group progression (Bronze → Silver → Gold → Diamond → Apex → Mythic). The scoring system is evidence-based, using peer-reviewed sports science research for 1RM estimation, allometric scaling, volume landmarks, and detraining models.
 
 ## Commands
 

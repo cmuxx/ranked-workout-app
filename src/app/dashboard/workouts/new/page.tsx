@@ -14,6 +14,8 @@ import {
   Loader2,
   Dumbbell,
   Check,
+  Flame,
+  Trophy,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +36,15 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface SetData {
   id: string;
@@ -72,6 +83,13 @@ interface Exercise {
   equipmentType: string;
   movementPattern: string | null;
   muscleContributions: MuscleContribution[];
+  createdByUserId?: string | null;
+}
+
+interface MuscleGroup {
+  id: string;
+  name: string;
+  bodyArea: string;
 }
 
 const WORKOUT_TYPES = [
@@ -115,6 +133,27 @@ export default function NewWorkoutPage() {
   const [workoutStartTime] = useState(() => new Date());
   const [selectedExerciseIds, setSelectedExerciseIds] = useState<Set<string>>(new Set());
 
+  // Add new exercise state
+  const [showAddExerciseForm, setShowAddExerciseForm] = useState(false);
+  const [muscleGroups, setMuscleGroups] = useState<MuscleGroup[]>([]);
+  const [newExercise, setNewExercise] = useState({
+    name: '',
+    equipmentType: 'barbell',
+    movementPattern: '',
+    primaryMuscleGroupId: '',
+  });
+  const [isCreatingExercise, setIsCreatingExercise] = useState(false);
+  const [createExerciseError, setCreateExerciseError] = useState<string | null>(null);
+
+  // Post-workout modal state
+  const [showPostWorkoutModal, setShowPostWorkoutModal] = useState(false);
+  const [workoutSummary, setWorkoutSummary] = useState<{
+    muscleImpact: Record<string, { volume: number; sets: number }>;
+    newPRs: Array<{ exercise: string; estimated1RM: number }>;
+    streak: number;
+  } | null>(null);
+  const [animatedBars, setAnimatedBars] = useState<Record<string, number>>({});
+
   // Fetch exercises from API
   useEffect(() => {
     async function fetchExercises() {
@@ -144,6 +183,72 @@ export default function NewWorkoutPage() {
       return () => clearInterval(interval);
     }
   }, [restTimeRemaining]);
+
+  // Fetch muscle groups for the add exercise form
+  useEffect(() => {
+    async function fetchMuscleGroups() {
+      try {
+        const res = await fetch('/api/muscle-groups');
+        if (res.ok) {
+          const data = await res.json();
+          setMuscleGroups(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch muscle groups:', error);
+      }
+    }
+    fetchMuscleGroups();
+  }, []);
+
+  // Create a new custom exercise
+  const handleCreateExercise = async () => {
+    if (!newExercise.name.trim()) {
+      setCreateExerciseError('Exercise name is required');
+      return;
+    }
+
+    setIsCreatingExercise(true);
+    setCreateExerciseError(null);
+
+    try {
+      const res = await fetch('/api/exercises', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newExercise.name.trim(),
+          equipmentType: newExercise.equipmentType,
+          movementPattern: newExercise.movementPattern || null,
+          primaryMuscleGroupId: newExercise.primaryMuscleGroupId || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to create exercise');
+      }
+
+      const createdExercise = await res.json();
+
+      // Add to available exercises list
+      setAvailableExercises(prev => [...prev, createdExercise].sort((a, b) => a.name.localeCompare(b.name)));
+
+      // Reset form and close
+      setNewExercise({
+        name: '',
+        equipmentType: 'barbell',
+        movementPattern: '',
+        primaryMuscleGroupId: '',
+      });
+      setShowAddExerciseForm(false);
+
+      // Auto-select the new exercise
+      setSelectedExerciseIds(prev => new Set(prev).add(createdExercise.id));
+    } catch (error) {
+      setCreateExerciseError(error instanceof Error ? error.message : 'Failed to create exercise');
+    } finally {
+      setIsCreatingExercise(false);
+    }
+  };
 
   // Helper to get primary muscle group from an exercise
   const getPrimaryMuscle = (exercise: Exercise): string => {
@@ -373,14 +478,28 @@ export default function NewWorkoutPage() {
       }
 
       const data = await res.json();
-      
-      // Show PR notification if any
-      if (data.newPRs && data.newPRs.length > 0) {
-        // Could add a toast notification here
-        console.log('New PRs:', data.newPRs);
-      }
 
-      router.push('/dashboard/workouts');
+      // Show post-workout modal with progress
+      if (data.muscleImpact && Object.keys(data.muscleImpact).length > 0) {
+        setWorkoutSummary({
+          muscleImpact: data.muscleImpact,
+          newPRs: data.newPRs || [],
+          streak: data.streak || 0,
+        });
+        setShowPostWorkoutModal(true);
+
+        // Animate the progress bars
+        setTimeout(() => {
+          const maxVolume = Math.max(...Object.values(data.muscleImpact).map((m: { volume: number }) => m.volume));
+          const animated: Record<string, number> = {};
+          Object.entries(data.muscleImpact).forEach(([muscle, impact]) => {
+            animated[muscle] = ((impact as { volume: number }).volume / maxVolume) * 100;
+          });
+          setAnimatedBars(animated);
+        }, 100);
+      } else {
+        router.push('/dashboard/workouts');
+      }
     } catch (error) {
       console.error('Failed to save workout:', error);
       setSaveError(error instanceof Error ? error.message : 'Failed to save workout');
@@ -726,8 +845,122 @@ export default function NewWorkoutPage() {
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
-                ) : sortedMuscleGroups.length > 0 ? (
-                  sortedMuscleGroups.map((muscleGroup) => {
+                ) : sortedMuscleGroups.length > 0 || showAddExerciseForm ? (
+                  <>
+                    {/* Add New Exercise Form */}
+                    {showAddExerciseForm ? (
+                      <div className="p-4 bg-muted/50 rounded-lg space-y-4 mb-4">
+                        <h4 className="font-medium">Create New Exercise</h4>
+                        {createExerciseError && (
+                          <p className="text-sm text-destructive">{createExerciseError}</p>
+                        )}
+                        <div className="space-y-3">
+                          <div>
+                            <Label htmlFor="exerciseName">Exercise Name *</Label>
+                            <Input
+                              id="exerciseName"
+                              placeholder="e.g., Cable Crossover"
+                              value={newExercise.name}
+                              onChange={(e) => setNewExercise(prev => ({ ...prev, name: e.target.value }))}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <Label>Equipment Type *</Label>
+                              <Select
+                                value={newExercise.equipmentType}
+                                onValueChange={(v) => setNewExercise(prev => ({ ...prev, equipmentType: v }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="barbell">Barbell</SelectItem>
+                                  <SelectItem value="dumbbell">Dumbbell</SelectItem>
+                                  <SelectItem value="machine">Machine</SelectItem>
+                                  <SelectItem value="cable">Cable</SelectItem>
+                                  <SelectItem value="bodyweight">Bodyweight</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label>Movement Pattern</Label>
+                              <Select
+                                value={newExercise.movementPattern}
+                                onValueChange={(v) => setNewExercise(prev => ({ ...prev, movementPattern: v }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="push">Push</SelectItem>
+                                  <SelectItem value="pull">Pull</SelectItem>
+                                  <SelectItem value="squat">Squat</SelectItem>
+                                  <SelectItem value="hinge">Hinge</SelectItem>
+                                  <SelectItem value="isolation">Isolation</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div>
+                            <Label>Primary Muscle Group</Label>
+                            <Select
+                              value={newExercise.primaryMuscleGroupId}
+                              onValueChange={(v) => setNewExercise(prev => ({ ...prev, primaryMuscleGroupId: v }))}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select muscle group..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {muscleGroups.map((mg) => (
+                                  <SelectItem key={mg.id} value={mg.id}>
+                                    {mg.name.charAt(0).toUpperCase() + mg.name.slice(1)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={handleCreateExercise}
+                            disabled={isCreatingExercise || !newExercise.name.trim()}
+                          >
+                            {isCreatingExercise ? (
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            ) : (
+                              <Plus className="h-4 w-4 mr-2" />
+                            )}
+                            Create Exercise
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setShowAddExerciseForm(false);
+                              setCreateExerciseError(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="w-full flex items-center gap-2 p-3 rounded-lg bg-primary/10 hover:bg-primary/20 transition-colors text-left mb-4"
+                        onClick={() => setShowAddExerciseForm(true)}
+                      >
+                        <Plus className="h-5 w-5 text-primary" />
+                        <div>
+                          <p className="font-medium text-primary">Add New Exercise</p>
+                          <p className="text-xs text-muted-foreground">Create a custom exercise</p>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Exercise List */}
+                    {sortedMuscleGroups.map((muscleGroup) => {
                     const isRecommended = workoutType && workoutTypeRelevance[workoutType]?.muscles
                       .map(m => m.charAt(0).toUpperCase() + m.slice(1))
                       .includes(muscleGroup);
@@ -776,7 +1009,8 @@ export default function NewWorkoutPage() {
                         </div>
                       </div>
                     );
-                  })
+                  })}
+                  </>
                 ) : (
                   <p className="text-center text-sm text-muted-foreground py-4">
                     No exercises found
@@ -840,6 +1074,87 @@ export default function NewWorkoutPage() {
           </p>
         </div>
       )}
+
+      {/* Post-Workout Summary Modal */}
+      <AlertDialog open={showPostWorkoutModal} onOpenChange={setShowPostWorkoutModal}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-center text-xl">
+              Workout Complete!
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-center">
+              Great job! Here&apos;s how you trained your muscles today.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Streak */}
+            {workoutSummary?.streak && workoutSummary.streak > 0 && (
+              <div className="text-center p-3 bg-orange-500/10 rounded-lg">
+                <div className="flex items-center justify-center gap-2">
+                  <Flame className="h-5 w-5 text-orange-500" />
+                  <span className="font-bold text-orange-500">
+                    {workoutSummary.streak} Day Streak!
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* New PRs */}
+            {workoutSummary?.newPRs && workoutSummary.newPRs.length > 0 && (
+              <div className="p-3 bg-yellow-500/10 rounded-lg">
+                <h4 className="font-medium text-yellow-600 dark:text-yellow-400 mb-2 flex items-center gap-2">
+                  <Trophy className="h-4 w-4" />
+                  New Personal Records
+                </h4>
+                {workoutSummary.newPRs.map((pr, i) => (
+                  <div key={i} className="text-sm flex justify-between">
+                    <span>{pr.exercise}</span>
+                    <span className="font-medium">{Math.round(pr.estimated1RM)} lb (Est. 1RM)</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Muscle Impact with Animated Bars */}
+            {workoutSummary?.muscleImpact && Object.keys(workoutSummary.muscleImpact).length > 0 && (
+              <div className="space-y-3">
+                <h4 className="font-medium text-sm text-muted-foreground">Muscles Trained</h4>
+                {Object.entries(workoutSummary.muscleImpact)
+                  .sort(([, a], [, b]) => b.volume - a.volume)
+                  .map(([muscle, impact]) => (
+                    <div key={muscle} className="space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="capitalize font-medium">{muscle}</span>
+                        <span className="text-muted-foreground">
+                          {impact.sets} sets • {(impact.volume / 1000).toFixed(1)}k lb
+                        </span>
+                      </div>
+                      <div className="h-3 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all duration-1000 ease-out"
+                          style={{ width: `${animatedBars[muscle] || 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => {
+                setShowPostWorkoutModal(false);
+                router.push('/dashboard/workouts');
+              }}
+              className="w-full"
+            >
+              View All Workouts
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

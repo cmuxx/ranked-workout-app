@@ -98,39 +98,68 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Calculate streak data
+    // Calculate streak data using the same logic as stats API
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    // Get sorted workout dates
+    const workoutDates = Object.keys(activityByDate)
+      .map(d => {
+        const date = new Date(d);
+        date.setHours(0, 0, 0, 0);
+        return date;
+      })
+      .sort((a, b) => b.getTime() - a.getTime());
+
     let currentStreak = 0;
     let longestStreak = 0;
-    let tempStreak = 0;
-    
-    // Check from today backwards
-    for (let i = 0; i < 365; i++) {
-      const checkDate = new Date(today);
-      checkDate.setDate(checkDate.getDate() - i);
-      const dateKey = checkDate.toISOString().split('T')[0];
-      
-      if (activityByDate[dateKey]) {
-        tempStreak++;
-        if (i === 0 || currentStreak > 0) {
-          currentStreak = tempStreak;
-        }
-      } else {
-        if (tempStreak > longestStreak) {
-          longestStreak = tempStreak;
-        }
-        tempStreak = 0;
-        if (i > 0) {
-          currentStreak = 0;
+
+    if (workoutDates.length > 0) {
+      const mostRecentWorkout = workoutDates[0];
+
+      // Streak is only active if most recent workout is today or yesterday
+      if (mostRecentWorkout.getTime() >= yesterday.getTime()) {
+        currentStreak = 1;
+        let currentDate = mostRecentWorkout;
+
+        for (let i = 1; i < workoutDates.length; i++) {
+          const prevDate = new Date(currentDate);
+          prevDate.setDate(prevDate.getDate() - 1);
+
+          if (workoutDates[i].getTime() === prevDate.getTime()) {
+            currentStreak++;
+            currentDate = workoutDates[i];
+          } else {
+            break;
+          }
         }
       }
+
+      // Calculate longest streak
+      let tempStreak = 1;
+      for (let i = 1; i < workoutDates.length; i++) {
+        const prevExpected = new Date(workoutDates[i - 1]);
+        prevExpected.setDate(prevExpected.getDate() - 1);
+
+        if (workoutDates[i].getTime() === prevExpected.getTime()) {
+          tempStreak++;
+        } else {
+          if (tempStreak > longestStreak) {
+            longestStreak = tempStreak;
+          }
+          tempStreak = 1;
+        }
+      }
+      if (tempStreak > longestStreak) {
+        longestStreak = tempStreak;
+      }
     }
-    
-    if (tempStreak > longestStreak) {
-      longestStreak = tempStreak;
-    }
+
+    // Longest streak should include current streak if it's larger
+    longestStreak = Math.max(longestStreak, currentStreak);
 
     // Calculate weekly stats
     const thisWeekStart = new Date(today);

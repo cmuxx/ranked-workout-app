@@ -1,4 +1,4 @@
-# Ranked Gym Progress
+# Gymenace
 
 > **⚠️ Work In Progress** — This project is under active development and not yet ready for public use. Feel free to explore the codebase and research, but expect breaking changes.
 
